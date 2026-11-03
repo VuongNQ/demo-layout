@@ -1,0 +1,9 @@
+/* Tailwind 4, utilities + theme only — deliberately NOT importing
+   tailwindcss/preflight. Preflight resets margins, box-sizing, button/
+   input appearance, etc. on bare elements, which collides with Ant
+   Design's own reset (antd/dist/reset.css) and would change how every
+   AntD component looks, not just where Tailwind classes are used.
+   This keeps Tailwind to opt-in utility classes only — nothing here
+   changes a page that uses no `className` utilities at all. */
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
