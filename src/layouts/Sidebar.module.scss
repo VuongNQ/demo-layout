@@ -1,0 +1,24 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.menu {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border-inline-end: 0;
+}
+
+.footer {
+  flex: 0 0 auto;
+  border-top: 1px solid #f0f0f0;
+  padding: 12px;
+}
+
+.footerLabel {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+}

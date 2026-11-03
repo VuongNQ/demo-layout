@@ -4,7 +4,6 @@ import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { AppBreadcrumb } from './AppBreadcrumb';
-import { DevPanel } from './DevPanel';
 import styles from './AppLayout.module.scss';
 
 const { Sider, Header, Content } = Layout;
@@ -29,7 +28,6 @@ export function AppLayout() {
           </Space>
         </Header>
         <Content className={styles.content}>
-          <DevPanel />
           <AppBreadcrumb />
           <Outlet />
         </Content>

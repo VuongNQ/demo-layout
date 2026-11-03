@@ -1,4 +1,4 @@
-import { Menu } from 'antd';
+import { Menu, Typography } from 'antd';
 import {
   CheckSquareOutlined,
   ExperimentOutlined,
@@ -13,6 +13,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { menuTree, type MenuNode } from '@/menu/menu-tree';
 import { useCurrentUser } from '@/hooks/use-current-user.hook';
 import type { ItemType } from 'antd/es/menu/interface';
+import { DevPanel } from './DevPanel';
+import styles from './Sidebar.module.scss';
 
 // menu-tree.ts stores icon as a string key (stays plain .ts, no JSX) —
 // this is the only place that maps it to a real AntD icon component.
@@ -62,16 +64,27 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
   const items = toMenuItems(menuTree, permissions);
 
   return (
-    <Menu
-      mode="inline"
-      inlineCollapsed={collapsed}
-      style={{ height: '100%', borderInlineEnd: 0 }}
-      selectedKeys={[location.pathname]}
-      defaultOpenKeys={['products', 'offer-management', 'system']}
-      items={items}
-      onClick={({ key }) => {
-        if (key.startsWith('/')) navigate(key);
-      }}
-    />
+    <div className={styles.root}>
+      <Menu
+        mode="inline"
+        inlineCollapsed={collapsed}
+        className={styles.menu}
+        selectedKeys={[location.pathname]}
+        defaultOpenKeys={['products', 'offer-management', 'system']}
+        items={items}
+        onClick={({ key }) => {
+          if (key.startsWith('/')) navigate(key);
+        }}
+      />
+      <div className={styles.footer}>
+        <Typography.Text type="secondary" className={styles.footerLabel}>
+          {collapsed ? 'v0.1' : 'Demo layout v0.1 — nội bộ, không public'}
+        </Typography.Text>
+        {/* DevPanel sits below the sidebar's own footer line, as requested —
+            still presenter-visible, just out of the content area. Hidden
+            when collapsed: the checkbox group needs more than 64px to read. */}
+        {!collapsed && <DevPanel />}
+      </div>
+    </div>
   );
 }
