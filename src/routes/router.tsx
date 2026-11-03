@@ -4,6 +4,8 @@ import { OfferTypeListPage } from '@/features/offer-type/OfferTypeListPage';
 import { OfferTypeDrawerRoute } from '@/features/offer-type/OfferTypeDrawerRoute';
 import { OfferTypeEditPage } from '@/features/offer-type/OfferTypeEditPage';
 import { ProductSyncPage } from '@/features/product-sync/ProductSyncPage';
+import { ProductSettingsListPage } from '@/features/product-settings/ProductSettingsListPage';
+import { ProductSettingsEditPage } from '@/features/product-settings/ProductSettingsEditPage';
 import { BackgroundLockListPage } from '@/features/background-lock/BackgroundLockListPage';
 import { BackgroundLockDrawerRoute } from '@/features/background-lock/BackgroundLockDrawerRoute';
 import { UnsavedChangesExperimentPage } from '@/experiments/unsaved-changes/UnsavedChangesExperimentPage';
@@ -35,6 +37,11 @@ export const router = createBrowserRouter(
         // No Drawer-vs-Page question on this screen: every overlay is
         // read-only or a confirm/progress modal (see ProductSyncPage).
         { path: 'product-sync', element: <ProductSyncPage /> },
+
+        // Full page only — this is the complex-form / ContextualSaveBar
+        // showcase (Form.List tiers + documents, conditional fields).
+        { path: 'product-settings', element: <ProductSettingsListPage /> },
+        { path: 'product-settings/:id', element: <ProductSettingsEditPage /> },
 
         // Short form, unpaginated list, Drawer only (substrate A) — the
         // easy end of the threshold question, opposite of offer-type.

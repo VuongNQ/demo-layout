@@ -52,6 +52,12 @@ Pages không có server-side rewrite — nếu không làm vậy, một deep lin
 GitHub Actions (`.github/workflows/deploy-pages.yml`) build và deploy lên
 GitHub Pages ở mỗi lần push nhánh `main`. Không commit thư mục `dist`.
 
+## Sidebar thu gọn
+
+Nút thu/mở ở header bật `inlineCollapsed` cho menu — các node nhóm (Sản
+phẩm, Hệ thống, Thí nghiệm...) có icon để vẫn nhận ra được khi menu co lại
+chỉ còn icon.
+
 ## Stack
 
 Vite + React 18 + TypeScript, Ant Design 5, React Router 7, TanStack Query 5,
@@ -85,6 +91,17 @@ Mô phỏng `background-main-lock` của repo thật: list ngắn (10 item), **k
 phân trang**, kéo thả priority, Drawer 6 trường (substrate A duy nhất, không
 có bản full-page). Đây là ca nên rõ ràng là Drawer — đối lập với
 offer-type (30 trường, 120 item) để thấy cả hai đầu của ngưỡng.
+
+### Cài đặt sản phẩm (`/product-settings`) — form cấu trúc phức tạp + save bar kiểu Shopify
+
+Form phức tạp nhất trong sketch: `Form.List` cho bậc lãi suất (thêm/xoá hàng
+động), `Form.List` cho danh sách hồ sơ yêu cầu (tên + checkbox), và field
+điều kiện khách hàng đổi hẳn bộ trường theo lựa chọn Cá nhân/Doanh nghiệp
+(`Form.Item shouldUpdate`, không chỉ disable). Thay cho footer cố định ở
+dưới (như offer-type full-page), trang này dùng **`ContextualSaveBar`** —
+thanh Lưu/Huỷ trượt xuống che thanh header khi form có thay đổi, kiểu
+Shopify — để so sánh hai cách neo nút Lưu cho cùng dạng "form dài, full
+page".
 
 ## Ba thí nghiệm (đang bổ sung)
 

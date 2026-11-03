@@ -3,11 +3,17 @@
 // from the URL — see src/helpers/menus.helper.ts in that repo (not this one).
 //
 // Permissions here are fictional: `demo:*`, not any real HDS constant.
+// `icon` is a string key, not a component — this file stays plain .ts
+// (no JSX) and Sidebar.tsx maps the key to an actual AntD icon. Only
+// nodes a collapsed sidebar actually needs to show something for
+// (top-level and group nodes) carry one; a leaf without an icon still
+// renders, just as a bare label / tooltip in collapsed mode.
 export type MenuNode = {
   key: string;
   label: string;
   path?: string;
   permission?: string;
+  icon?: string;
   children?: MenuNode[];
 };
 
@@ -15,10 +21,12 @@ export const menuTree: MenuNode[] = [
   {
     key: 'products',
     label: 'Sản phẩm',
+    icon: 'shopping',
     children: [
       {
         key: 'offer-management',
         label: 'Quản lý ưu đãi',
+        icon: 'tags',
         children: [
           {
             key: 'offer-types',
@@ -31,7 +39,15 @@ export const menuTree: MenuNode[] = [
       {
         key: 'product-sync',
         label: 'Đồng bộ sản phẩm',
+        icon: 'swap',
         path: '/product-sync',
+        permission: 'demo:view'
+      },
+      {
+        key: 'product-settings',
+        label: 'Cài đặt sản phẩm',
+        icon: 'tool',
+        path: '/product-settings',
         permission: 'demo:view'
       }
     ]
@@ -39,10 +55,12 @@ export const menuTree: MenuNode[] = [
   {
     key: 'system',
     label: 'Hệ thống',
+    icon: 'setting',
     children: [
       {
         key: 'background-management',
         label: 'Quản lý ảnh nền',
+        icon: 'picture',
         children: [
           {
             key: 'background-locks',
@@ -55,6 +73,7 @@ export const menuTree: MenuNode[] = [
       {
         key: 'experiments',
         label: 'Thí nghiệm',
+        icon: 'experiment',
         children: [
           { key: 'exp-unsaved', label: '1. Guard unsaved-changes', path: '/experiments/unsaved-changes' },
           { key: 'exp-reorder', label: '2. Kéo thả + phân trang', path: '/experiments/reorder-pagination' },
@@ -64,6 +83,7 @@ export const menuTree: MenuNode[] = [
       {
         key: 'decisions',
         label: 'Quyết định layout',
+        icon: 'check-square',
         path: '/decisions'
       }
     ]
