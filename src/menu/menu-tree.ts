@@ -53,6 +53,15 @@ export const menuTree: MenuNode[] = [
         ]
       },
       {
+        key: 'experiments',
+        label: 'Thí nghiệm',
+        children: [
+          { key: 'exp-unsaved', label: '1. Guard unsaved-changes', path: '/experiments/unsaved-changes' },
+          { key: 'exp-reorder', label: '2. Kéo thả + phân trang', path: '/experiments/reorder-pagination' },
+          { key: 'exp-tabs', label: '3. Tabs vs Anchor', path: '/experiments/tabs-vs-anchor' }
+        ]
+      },
+      {
         key: 'decisions',
         label: 'Quyết định layout',
         path: '/decisions'

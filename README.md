@@ -93,3 +93,20 @@ offer-type (30 trường, 120 item) để thấy cả hai đầu của ngưỡng
 3. Lỗi validation nằm trên tab đang ẩn, so với layout section + Anchor.
 
 Xem `/decisions` trong app để biết trạng thái từng điểm quyết định.
+
+## Ba thí nghiệm (`/experiments/*`)
+
+1. **`/experiments/unsaved-changes`** — guard chặn điều hướng khi còn thay
+   đổi chưa lưu. Hai Drawer cạnh nhau: một dùng `useState` cục bộ, một gắn
+   child route (giống substrate A thật). Gõ gì đó vào mỗi Drawer rồi đóng
+   bằng Hủy/X/mask/ESC, đọc nhật ký để thấy guard có được hỏi không.
+2. **`/experiments/reorder-pagination`** — 3 chế độ kéo thả thứ tự trên
+   cùng 120 item offer-type: phân trang (hiện tại), chế độ sắp xếp riêng
+   (bỏ phân trang), nhập vị trí trực tiếp.
+3. **`/experiments/tabs-vs-anchor`** — cùng một lỗi validation (nằm ở
+   nhóm trường cuối) trên hai layout: Tabs (lỗi ẩn, không rõ ở tab nào) và
+   section + `Anchor` + `scrollToFirstError` (tự cuộn tới lỗi).
+
+`/decisions` liệt kê 8 điểm cần chốt, mỗi điểm link tới thí nghiệm liên
+quan (khi có) và một ô ghi chú lưu trên máy (localStorage, không gửi đi
+đâu) để điền trong buổi họp.

@@ -6,6 +6,10 @@ import { OfferTypeEditPage } from '@/features/offer-type/OfferTypeEditPage';
 import { ProductSyncPage } from '@/features/product-sync/ProductSyncPage';
 import { BackgroundLockListPage } from '@/features/background-lock/BackgroundLockListPage';
 import { BackgroundLockDrawerRoute } from '@/features/background-lock/BackgroundLockDrawerRoute';
+import { UnsavedChangesExperimentPage } from '@/experiments/unsaved-changes/UnsavedChangesExperimentPage';
+import { RouteBoundDrawerRoute } from '@/experiments/unsaved-changes/RouteBoundDrawerRoute';
+import { ReorderExperimentPage } from '@/experiments/reorder-pagination/ReorderExperimentPage';
+import { TabsVsAnchorExperimentPage } from '@/experiments/tabs-vs-anchor/TabsVsAnchorExperimentPage';
 import { DecisionsPage } from '@/pages/DecisionsPage';
 
 export const router = createBrowserRouter(
@@ -39,6 +43,14 @@ export const router = createBrowserRouter(
           element: <BackgroundLockListPage />,
           children: [{ path: ':id', element: <BackgroundLockDrawerRoute /> }]
         },
+
+        {
+          path: 'experiments/unsaved-changes',
+          element: <UnsavedChangesExperimentPage />,
+          children: [{ path: 'edit', element: <RouteBoundDrawerRoute /> }]
+        },
+        { path: 'experiments/reorder-pagination', element: <ReorderExperimentPage /> },
+        { path: 'experiments/tabs-vs-anchor', element: <TabsVsAnchorExperimentPage /> },
 
         { path: 'decisions', element: <DecisionsPage /> }
       ]
