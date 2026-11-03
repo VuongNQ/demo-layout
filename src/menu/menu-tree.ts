@@ -27,6 +27,12 @@ export const menuTree: MenuNode[] = [
             permission: 'demo:view'
           }
         ]
+      },
+      {
+        key: 'product-sync',
+        label: 'Đồng bộ sản phẩm',
+        path: '/product-sync',
+        permission: 'demo:view'
       }
     ]
   },
@@ -34,6 +40,18 @@ export const menuTree: MenuNode[] = [
     key: 'system',
     label: 'Hệ thống',
     children: [
+      {
+        key: 'background-management',
+        label: 'Quản lý ảnh nền',
+        children: [
+          {
+            key: 'background-locks',
+            label: 'Cài đặt ảnh nền',
+            path: '/background-locks',
+            permission: 'demo:view'
+          }
+        ]
+      },
       {
         key: 'decisions',
         label: 'Quyết định layout',

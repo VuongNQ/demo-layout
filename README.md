@@ -59,7 +59,9 @@ dnd-kit. Soi theo stack HDS Admin để code demo dễ đối chiếu, nhưng kh
 theo Redux, React Hook Form, hay i18next — những thứ không cần cho bản phác
 thảo này.
 
-## Hai nền layout đang so sánh
+## Các màn demo
+
+### Loại ưu đãi (`/offer-types`) — so sánh hai nền layout
 
 - **A — Drawer gắn child route**: `/offer-types/:id`, `/offer-types/create`.
   List không unmount khi Drawer mở.
@@ -67,7 +69,22 @@ thảo này.
   Drawer để chuyển sang nền B cho đúng item.
 
 Form (`OfferTypeForm`) dùng chung cho cả hai nền — không biết nó đang nằm
-trong Drawer hay trang.
+trong Drawer hay trang. List 120 item, có phân trang — reorder hiện chỉ
+trong phạm vi trang hiện tại (1 trong 3 chế độ của thí nghiệm 2).
+
+### Đồng bộ sản phẩm (`/product-sync`) — không có câu hỏi Drawer-vs-Page
+
+Mô phỏng `scheme-sync` của repo thật: KPI cards, bảng kết quả, và ba modal
+đều **read-only hoặc confirm/progress** — "Xem khác biệt" (diff, chỉ có
+nghĩa cạnh dòng đang xem — supporting pane), "Lịch sử đồng bộ", "Đồng bộ
+ngay". Không modal nào cần URL, không modal nào là form.
+
+### Cài đặt ảnh nền (`/background-locks`) — đầu kia của ngưỡng Drawer
+
+Mô phỏng `background-main-lock` của repo thật: list ngắn (10 item), **không
+phân trang**, kéo thả priority, Drawer 6 trường (substrate A duy nhất, không
+có bản full-page). Đây là ca nên rõ ràng là Drawer — đối lập với
+offer-type (30 trường, 120 item) để thấy cả hai đầu của ngưỡng.
 
 ## Ba thí nghiệm (đang bổ sung)
 

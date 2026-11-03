@@ -4,7 +4,7 @@ import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } f
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { Link, Outlet, useNavigate } from 'react-router-dom';
 import { useOfferTypeListQuery, useReorderOfferTypesMutation } from './offer-type.queries.hook';
-import { DragHandle, SortableRow } from './SortableRow';
+import { DragHandle, SortableRow } from '@/components/SortableRow';
 import { ImportLocalDataButton } from './components/ImportLocalDataButton';
 import type { OfferType, OfferStatus } from '@/data/demo-data';
 
