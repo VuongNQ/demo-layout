@@ -32,7 +32,7 @@ const DECISIONS: DecisionItem[] = [
   {
     id: 'breadcrumb-no-menu',
     title: '4. Breadcrumb cho route không có menu entry',
-    context: 'Route /offer-types/:id/edit không có menu entry — breadcrumb trống, giống ca theme-lock thật. Có cần xử lý khác đi không?',
+    context: 'Route /offer-types/:id/edit không có menu entry — breadcrumb trống, giống ca background-main-lock thật (đổi tên từ theme-lock ngày 2026-10-21, vẫn chưa có menu entry). Có cần xử lý khác đi không?',
     link: { to: '/offer-types', label: 'Xem (mở 1 item rồi "Mở toàn trang")' }
   },
   {

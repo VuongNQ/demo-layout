@@ -90,8 +90,9 @@ export const menuTree: MenuNode[] = [
   }
   // Deliberately NOT listed here: /offer-types/:id/edit and the Drawer
   // routes. They exist in the router but have no menu entry, reproducing
-  // a real gap in HDS Admin (theme-lock has no menu entry either) so the
-  // breadcrumb-from-menu behavior can be seen for a route that is only
+  // a real gap in HDS Admin (background-main-lock, renamed from theme-lock
+  // on 2026-10-21, still has no menu entry under its new name either) so
+  // the breadcrumb-from-menu behavior can be seen for a route that is only
   // reachable by direct link or an in-feature action.
 ];
 
