@@ -62,7 +62,14 @@ export const menuTree: MenuNode[] = [
         children: [
           { key: 'fees', label: 'Biểu phí', path: '/fees', permission: 'demo:view' },
           { key: 'promotions', label: 'Khuyến mãi', path: '/promotions', permission: 'demo:view' },
-          { key: 'promotion-types', label: 'Loại khuyến mãi', path: '/promotion-types', permission: 'demo:view' }
+          { key: 'promotion-types', label: 'Loại khuyến mãi', path: '/promotion-types', permission: 'demo:view' },
+          { key: 'required-information', label: 'Thông tin bắt buộc', path: '/required-information', permission: 'demo:view' },
+          {
+            key: 'display-information-sets',
+            label: 'Bộ hiển thị',
+            path: '/display-information-sets',
+            permission: 'demo:view'
+          }
         ]
       }
     ]

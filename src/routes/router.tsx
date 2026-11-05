@@ -15,6 +15,10 @@ import { PromotionCreatePage } from '@/features/promotions/PromotionCreatePage';
 import { PromotionEditPage } from '@/features/promotions/PromotionEditPage';
 import { PromotionTypesListPage } from '@/features/promotion-types/PromotionTypesListPage';
 import { PromotionTypeDrawerRoute } from '@/features/promotion-types/PromotionTypeDrawerRoute';
+import { RequiredInformationListPage } from '@/features/required-information/RequiredInformationListPage';
+import { RequiredInformationEditPage } from '@/features/required-information/RequiredInformationEditPage';
+import { DisplayInformationSetsListPage } from '@/features/display-information-sets/DisplayInformationSetsListPage';
+import { DisplayInformationSetEditPage } from '@/features/display-information-sets/DisplayInformationSetEditPage';
 import { UnsavedChangesExperimentPage } from '@/experiments/unsaved-changes/UnsavedChangesExperimentPage';
 import { RouteBoundDrawerRoute } from '@/experiments/unsaved-changes/RouteBoundDrawerRoute';
 import { ReorderExperimentPage } from '@/experiments/reorder-pagination/ReorderExperimentPage';
@@ -79,6 +83,12 @@ export const router = createBrowserRouter(
             { path: ':id', element: <PromotionTypeDrawerRoute /> }
           ]
         },
+
+        { path: 'required-information', element: <RequiredInformationListPage /> },
+        { path: 'required-information/:id', element: <RequiredInformationEditPage /> },
+
+        { path: 'display-information-sets', element: <DisplayInformationSetsListPage /> },
+        { path: 'display-information-sets/:id', element: <DisplayInformationSetEditPage /> },
 
         {
           path: 'experiments/unsaved-changes',
