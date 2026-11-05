@@ -69,7 +69,8 @@ export const menuTree: MenuNode[] = [
             label: 'Bộ hiển thị',
             path: '/display-information-sets',
             permission: 'demo:view'
-          }
+          },
+          { key: 'add-ons', label: 'Sản phẩm kèm theo', path: '/add-ons', permission: 'demo:view' }
         ]
       }
     ]
