@@ -8,6 +8,13 @@ import { ProductSettingsListPage } from '@/features/product-settings/ProductSett
 import { ProductSettingsEditPage } from '@/features/product-settings/ProductSettingsEditPage';
 import { BackgroundLockListPage } from '@/features/background-lock/BackgroundLockListPage';
 import { BackgroundLockDrawerRoute } from '@/features/background-lock/BackgroundLockDrawerRoute';
+import { FeesListPage } from '@/features/fees/FeesListPage';
+import { FeesEditPage } from '@/features/fees/FeesEditPage';
+import { PromotionsListPage } from '@/features/promotions/PromotionsListPage';
+import { PromotionCreatePage } from '@/features/promotions/PromotionCreatePage';
+import { PromotionEditPage } from '@/features/promotions/PromotionEditPage';
+import { PromotionTypesListPage } from '@/features/promotion-types/PromotionTypesListPage';
+import { PromotionTypeDrawerRoute } from '@/features/promotion-types/PromotionTypeDrawerRoute';
 import { UnsavedChangesExperimentPage } from '@/experiments/unsaved-changes/UnsavedChangesExperimentPage';
 import { RouteBoundDrawerRoute } from '@/experiments/unsaved-changes/RouteBoundDrawerRoute';
 import { ReorderExperimentPage } from '@/experiments/reorder-pagination/ReorderExperimentPage';
@@ -49,6 +56,28 @@ export const router = createBrowserRouter(
           path: 'background-locks',
           element: <BackgroundLockListPage />,
           children: [{ path: ':id', element: <BackgroundLockDrawerRoute /> }]
+        },
+
+        // Phase 1 of the Products sub-module recreation (fictional
+        // identifiers, real field shape — see the plan doc linked from the
+        // thread). Fees mirrors the complex-form/ContextualSaveBar pattern;
+        // Promotion mirrors the full-page create+edit CRUD pattern;
+        // Promotion type mirrors the Drawer create/edit + status-toggle,
+        // no-delete pattern.
+        { path: 'fees', element: <FeesListPage /> },
+        { path: 'fees/:id', element: <FeesEditPage /> },
+
+        { path: 'promotions', element: <PromotionsListPage /> },
+        { path: 'promotions/create', element: <PromotionCreatePage /> },
+        { path: 'promotions/:id/edit', element: <PromotionEditPage /> },
+
+        {
+          path: 'promotion-types',
+          element: <PromotionTypesListPage />,
+          children: [
+            { path: 'create', element: <PromotionTypeDrawerRoute /> },
+            { path: ':id', element: <PromotionTypeDrawerRoute /> }
+          ]
         },
 
         {

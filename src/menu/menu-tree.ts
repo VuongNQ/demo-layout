@@ -49,6 +49,21 @@ export const menuTree: MenuNode[] = [
         icon: 'tool',
         path: '/product-settings',
         permission: 'demo:view'
+      },
+      // Phase 1 of recreating the real Products domain's settings
+      // sub-modules in this sketch (fictional identifiers, real field
+      // shape) — see the plan doc linked from the thread. Grouped
+      // separately from the single-record product-settings demo above so
+      // it doesn't get mixed into the 8 already-settled layout decisions.
+      {
+        key: 'product-parameters',
+        label: 'Tham số sản phẩm',
+        icon: 'tags',
+        children: [
+          { key: 'fees', label: 'Biểu phí', path: '/fees', permission: 'demo:view' },
+          { key: 'promotions', label: 'Khuyến mãi', path: '/promotions', permission: 'demo:view' },
+          { key: 'promotion-types', label: 'Loại khuyến mãi', path: '/promotion-types', permission: 'demo:view' }
+        ]
       }
     ]
   },
