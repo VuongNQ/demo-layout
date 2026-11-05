@@ -70,7 +70,10 @@ export const menuTree: MenuNode[] = [
             path: '/display-information-sets',
             permission: 'demo:view'
           },
-          { key: 'add-ons', label: 'Sản phẩm kèm theo', path: '/add-ons', permission: 'demo:view' }
+          { key: 'add-ons', label: 'Sản phẩm kèm theo', path: '/add-ons', permission: 'demo:view' },
+          { key: 'popular-loans', label: 'Vay phổ biến', path: '/popular-loans', permission: 'demo:view' },
+          { key: 'attractive-offer', label: 'Ưu đãi nổi bật', path: '/attractive-offer', permission: 'demo:view' },
+          { key: 'exclusive-touch', label: 'Gán theo loại hiển thị', path: '/exclusive-touch', permission: 'demo:view' }
         ]
       }
     ]

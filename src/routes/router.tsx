@@ -21,6 +21,9 @@ import { DisplayInformationSetsListPage } from '@/features/display-information-s
 import { DisplayInformationSetEditPage } from '@/features/display-information-sets/DisplayInformationSetEditPage';
 import { AddOnsListPage } from '@/features/add-ons/AddOnsListPage';
 import { AddOnEditPage } from '@/features/add-ons/AddOnEditPage';
+import { PopularLoansPage } from '@/features/popular-loans/PopularLoansPage';
+import { AttractiveOfferPage } from '@/features/attractive-offer/AttractiveOfferPage';
+import { ExclusiveTouchPage } from '@/features/exclusive-touch/ExclusiveTouchPage';
 import { UnsavedChangesExperimentPage } from '@/experiments/unsaved-changes/UnsavedChangesExperimentPage';
 import { RouteBoundDrawerRoute } from '@/experiments/unsaved-changes/RouteBoundDrawerRoute';
 import { ReorderExperimentPage } from '@/experiments/reorder-pagination/ReorderExperimentPage';
@@ -94,6 +97,11 @@ export const router = createBrowserRouter(
 
         { path: 'add-ons', element: <AddOnsListPage /> },
         { path: 'add-ons/:id', element: <AddOnEditPage /> },
+
+        // Single-config pages — no :id, no create (see AssignedProductsEditor).
+        { path: 'popular-loans', element: <PopularLoansPage /> },
+        { path: 'attractive-offer', element: <AttractiveOfferPage /> },
+        { path: 'exclusive-touch', element: <ExclusiveTouchPage /> },
 
         {
           path: 'experiments/unsaved-changes',
