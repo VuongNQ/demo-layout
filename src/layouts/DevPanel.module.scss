@@ -1,0 +1,25 @@
+// Styled to read as part of the dark sidebar menu, not a white Card
+// floating on top of it (that read as a popup/modal at a glance).
+.root {
+  padding: 4px 0;
+}
+
+.hint {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  :global(.ant-checkbox-wrapper) {
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  :global(.ant-checkbox-wrapper:hover) {
+    color: #fff;
+  }
+}
