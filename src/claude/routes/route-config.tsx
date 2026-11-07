@@ -32,6 +32,11 @@ export const claudeRoutes: RouteObject[] = [{
     { path: path('productSettings'), lazy: async () => ({ Component: (await import('@/features/product-settings/ProductSettingsListPage')).ProductSettingsListPage }) },
     { path: path('productSettingsEdit'), lazy: async () => ({ Component: (await import('@/features/product-settings/ProductSettingsEditPage')).ProductSettingsEditPage }) },
     {
+      path: path('productLabels'),
+      lazy: async () => ({ Component: (await import('@/features/product-labels/ProductLabelsListPage')).ProductLabelsListPage }),
+      children: [{ path: child('productLabelDetail', 'productLabels'), lazy: async () => ({ Component: (await import('@/features/product-labels/ProductLabelQuickViewRoute')).ProductLabelQuickViewRoute }) }]
+    },
+    {
       path: path('backgroundLocks'),
       lazy: async () => ({ Component: (await import('@/features/background-lock/BackgroundLockListPage')).BackgroundLockListPage }),
       children: [{ path: child('backgroundLockDetail', 'backgroundLocks'), lazy: async () => ({ Component: (await import('@/features/background-lock/BackgroundLockDrawerRoute')).BackgroundLockDrawerRoute }) }]

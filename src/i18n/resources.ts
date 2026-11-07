@@ -31,7 +31,7 @@ const baseResources = {
       switcher: 'Chuyển nền tảng', primary: 'Điều hướng chính', breadcrumb: 'Đường dẫn',
       landing: 'Chọn nền tảng', workspace: 'Không gian làm việc', home: 'Trang chủ',
       products: 'Sản phẩm', offerManagement: 'Quản lý ưu đãi', offerTypes: 'Loại ưu đãi',
-      productSync: 'Đồng bộ sản phẩm', productSettings: 'Cài đặt sản phẩm', productParameters: 'Tham số sản phẩm',
+      productSync: 'Đồng bộ sản phẩm', productSettings: 'Cài đặt sản phẩm', productLabels: 'Nhãn sản phẩm', productParameters: 'Tham số sản phẩm',
       fees: 'Biểu phí', promotions: 'Khuyến mãi', promotionTypes: 'Loại khuyến mãi',
       requiredInformation: 'Thông tin bắt buộc', displayInformationSets: 'Bộ hiển thị', addOns: 'Sản phẩm kèm theo',
       popularLoans: 'Vay phổ biến', attractiveOffer: 'Ưu đãi nổi bật', exclusiveTouch: 'Gán theo loại hiển thị',
@@ -167,7 +167,7 @@ const baseResources = {
     },
     navigation: {
       switcher: 'Platform switcher', primary: 'Primary navigation', breadcrumb: 'Breadcrumb', landing: 'Choose a platform', workspace: 'Workspace', home: 'Home',
-      products: 'Products', offerManagement: 'Offer management', offerTypes: 'Offer Types', productSync: 'Product Sync', productSettings: 'Product Settings', productParameters: 'Product parameters',
+      products: 'Products', offerManagement: 'Offer management', offerTypes: 'Offer Types', productSync: 'Product Sync', productSettings: 'Product Settings', productLabels: 'Product Labels', productParameters: 'Product parameters',
       fees: 'Fees', promotions: 'Promotions', promotionTypes: 'Promotion Types', requiredInformation: 'Required Information', displayInformationSets: 'Display Information Sets', addOns: 'Add-ons',
       popularLoans: 'Popular Loans', attractiveOffer: 'Attractive Offer', exclusiveTouch: 'Assign by display type', system: 'System', backgroundManagement: 'Background management',
       backgroundLocks: 'Background Locks', experiments: 'Experiments', unsaved: '1. Unsaved changes guard', reorder: '2. Reorder and pagination', tabs: '3. Tabs vs Anchor',
@@ -307,6 +307,19 @@ export const resources = {
       ...baseResources.vi.claude,
       pages: {
         ...viPageResources,
+        productLabels: {
+          title: 'Nhãn sản phẩm', filters: 'Bộ lọc nhãn sản phẩm', search: 'Tìm theo tên hoặc mã nhãn', searchPlaceholder: 'Tên hoặc mã nhãn',
+          productLineFilter: 'Lọc theo dòng sản phẩm', allProductLines: 'Tất cả dòng sản phẩm', statusFilter: 'Lọc theo trạng thái', allStatuses: 'Tất cả trạng thái',
+          name: 'Tên nhãn', code: 'Mã nhãn', productLine: 'Dòng sản phẩm', status: 'Trạng thái', actions: 'Thao tác',
+          viewDetails: 'Xem chi tiết', viewDetailsFor: 'Xem chi tiết nhãn {{name}}',
+          lines: { 'cash-loan': 'Vay tiền mặt', 'credit-card': 'Thẻ tín dụng' },
+          statuses: { active: 'Đang hoạt động', inactive: 'Ngừng hoạt động' },
+          classifications: { eligibility: 'Phân loại điều kiện', display: 'Phân loại hiển thị', pricing: 'Phân loại giá' },
+          empty: 'Không tìm thấy nhãn phù hợp.', range: '{{from}}–{{to}} / {{total}} nhãn', resultCount: 'Có {{count}} nhãn phù hợp.',
+          quickView: 'Xem nhanh nhãn sản phẩm', quickViewTitle: 'Xem nhanh: {{name}}', recordId: 'Mã bản ghi: {{id}}',
+          classification: 'Phân loại', associatedProduct: 'Sản phẩm liên quan', lastUpdated: 'Cập nhật lần cuối', notProvided: 'Chưa có thông tin',
+          close: 'Đóng', notFoundTitle: 'Không tìm thấy nhãn', notFoundDescription: 'Không có nhãn sản phẩm với mã “{{id}}”.', returnToList: 'Quay lại danh sách'
+        },
         decisions: viDecisionResources,
         promotion: { ...viPageResources.promotion, ...pageExtra.vi.promotion },
         forms: { ...pageExtra.vi.forms },
@@ -321,6 +334,19 @@ export const resources = {
       ...baseResources.en.claude,
       pages: {
         ...enPageResources,
+        productLabels: {
+          title: 'Product Labels', filters: 'Product Label filters', search: 'Search by label name or code', searchPlaceholder: 'Label name or code',
+          productLineFilter: 'Filter by product line', allProductLines: 'All product lines', statusFilter: 'Filter by status', allStatuses: 'All statuses',
+          name: 'Label name', code: 'Label code', productLine: 'Product line', status: 'Status', actions: 'Actions',
+          viewDetails: 'View details', viewDetailsFor: 'View details for label {{name}}',
+          lines: { 'cash-loan': 'Cash loan', 'credit-card': 'Credit card' },
+          statuses: { active: 'Active', inactive: 'Inactive' },
+          classifications: { eligibility: 'Eligibility classification', display: 'Display classification', pricing: 'Pricing classification' },
+          empty: 'No matching labels found.', range: '{{from}}–{{to}} of {{total}} labels', resultCount: '{{count}} matching labels.',
+          quickView: 'Product Label quick view', quickViewTitle: 'Quick view: {{name}}', recordId: 'Record ID: {{id}}',
+          classification: 'Classification', associatedProduct: 'Associated product', lastUpdated: 'Last updated', notProvided: 'Not provided',
+          close: 'Close', notFoundTitle: 'Label not found', notFoundDescription: 'No Product Label exists with ID “{{id}}”.', returnToList: 'Return to list'
+        },
         decisions: enDecisionResources,
         promotion: { ...enPageResources.promotion, ...pageExtra.en.promotion },
         forms: { ...pageExtra.en.forms },
@@ -353,10 +379,11 @@ const attractiveOfferKeyParity: SameKeys<typeof resources.vi.claude.pages.attrac
 const exclusiveTouchKeyParity: SameKeys<typeof resources.vi.claude.pages.exclusiveTouch, typeof resources.en.claude.pages.exclusiveTouch> = true;
 const experimentsKeyParity: SameKeys<typeof resources.vi.claude.pages.experiments, typeof resources.en.claude.pages.experiments> = true;
 const decisionsKeyParity: SameKeys<typeof resources.vi.claude.pages.decisions, typeof resources.en.claude.pages.decisions> = true;
+const productLabelsKeyParity: SameKeys<typeof resources.vi.claude.pages.productLabels, typeof resources.en.claude.pages.productLabels> = true;
 const formsKeyParity: SameKeys<typeof resources.vi.claude.pages.forms, typeof resources.en.claude.pages.forms> = true;
 const offerPageKeyParity: SameKeys<typeof resources.vi.claude.pages.offer, typeof resources.en.claude.pages.offer> = true;
 const claudeBaseKeyParity: SameKeys<Omit<typeof resources.vi.claude, 'pages'>, Omit<typeof resources.en.claude, 'pages'>> = true;
 const chatgptKeyParity: SameKeys<typeof resources.vi.chatgpt, typeof resources.en.chatgpt> = true;
 const compareKeyParity: SameKeys<typeof resources.vi.compare, typeof resources.en.compare> = true;
 const validationKeyParity: SameKeys<typeof resources.vi.validation, typeof resources.en.validation> = true;
-void [commonKeyParity, navigationKeyParity, claudePageKeyParity, promotionKeyParity, promotionTypeKeyParity, requiredInfoKeyParity, displaySetKeyParity, backgroundKeyParity, assignedKeyParity, popularLoansKeyParity, attractiveOfferKeyParity, exclusiveTouchKeyParity, experimentsKeyParity, decisionsKeyParity, formsKeyParity, offerPageKeyParity, claudeBaseKeyParity, chatgptKeyParity, compareKeyParity, validationKeyParity];
+void [commonKeyParity, navigationKeyParity, claudePageKeyParity, promotionKeyParity, promotionTypeKeyParity, requiredInfoKeyParity, displaySetKeyParity, backgroundKeyParity, assignedKeyParity, popularLoansKeyParity, attractiveOfferKeyParity, exclusiveTouchKeyParity, experimentsKeyParity, decisionsKeyParity, productLabelsKeyParity, formsKeyParity, offerPageKeyParity, claudeBaseKeyParity, chatgptKeyParity, compareKeyParity, validationKeyParity];
