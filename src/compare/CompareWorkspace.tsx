@@ -1,85 +1,111 @@
-import { useState } from 'react';
+import { createContext, useContext, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useParams } from 'react-router-dom';
-import type { RouteObject } from 'react-router-dom';
-import { downloadMatrix, loadRecord, saveRecord, type ComparisonRecord, type CriterionNote } from './records';
+import { downloadMatrix, loadRecord, recordsForMatrix, saveRecord, type ComparisonRecord, type CriterionNote } from './records';
 import { scenarioById, scenarios, type DecisionStatus, type Destination, type Scenario } from './scenarios';
 import styles from './CompareWorkspace.module.scss';
+import { PlatformLinks } from '@/routes/PlatformLinks';
 
-const statusLabels: Record<DecisionStatus, string> = {
-  open: 'Open', testing: 'Testing', recommended: 'Recommended', approved: 'Approved', rejected: 'Rejected'
+const statusKeys: Record<DecisionStatus, string> = {
+  open: 'open', testing: 'testing', recommended: 'recommended', approved: 'approved', rejected: 'rejected'
 };
 
+type ActiveRecord = { scenarioId: string; record: ComparisonRecord };
+const ActiveRecordContext = createContext<MutableRefObject<ActiveRecord | null> | null>(null);
+
 function DestinationCard({ platform, destination, currentUrl }: { platform: string; destination: Destination; currentUrl?: string }) {
+  const { t } = useTranslation(['common', 'compare']);
+  const translatedPlatform = platform === 'Claude' ? t('common:claude') : t('common:chatgpt');
   return (
-    <section className={styles.destination} aria-label={`${platform} destination`}>
-      <h3>{platform}</h3>
-      <p><code>{destination.url}</code> <span className={styles.availability}>{destination.availability}</span></p>
-      {currentUrl ? <p>Current prototype: <Link to={currentUrl}>{currentUrl}</Link></p> : <p>No screen is available yet. Do not record a result until it exists.</p>}
+    <section className={styles.destination} aria-label={t('destinationLabel', { platform: translatedPlatform })}>
+      <h3>{translatedPlatform}</h3>
+      <p>{destination.availability === 'available' ? <Link to={destination.url}>{t('openScreen', { platform: translatedPlatform })}</Link> : <code>{destination.url}</code>} <span className={styles.availability}>{t(`common:${destination.availability}`)}</span></p>
+      {currentUrl ? <p>{t('legacyUrl')}: <Link to={currentUrl}>{currentUrl}</Link></p> : destination.availability !== 'available' ? <p>{t('noChatgptScreen')}</p> : null}
     </section>
   );
 }
 
 function MatrixButton({ currentScenario }: { currentScenario?: Scenario }) {
+  const { t } = useTranslation('compare');
+  const activeRecord = useContext(ActiveRecordContext);
   function handleDownload() {
     const selected = currentScenario ? [currentScenario] : scenarios;
-    const records = Object.fromEntries(selected.map((scenario) => [scenario.id, loadRecord(scenario)]));
+    // The visible worksheet is authoritative even when storage writes or
+    // reads fail, or when a stored record has become stale.
+    const visible = activeRecord?.current;
+    const records = recordsForMatrix(selected, visible);
     downloadMatrix(selected, records);
   }
-  return <button className={styles.button} type="button" onClick={handleDownload}>Download comparison matrix CSV</button>;
+  return <button className={styles.button} type="button" onClick={handleDownload}>{t('downloadCsv')}</button>;
 }
 
 export function CompareLayout() {
+  const { t } = useTranslation(['common', 'navigation', 'chatgpt', 'compare']);
+  const activeRecord = useRef<ActiveRecord | null>(null);
   return (
+    <ActiveRecordContext.Provider value={activeRecord}>
     <div className={styles.workspace}>
-      <a className={styles.skip} href="#compare-main">Skip to comparison content</a>
+      <a className={styles.skip} href="#compare-main">{t('compare:skip')}</a>
       <header className={styles.header}>
+        <PlatformLinks />
         <div>
-          <p className={styles.eyebrow}>Design playground</p>
-          <Link className={styles.brand} to="/compare">Compare workspace</Link>
-          <p>Fictional scenarios. Platform screens open through separate routes.</p>
+          <p className={styles.eyebrow}>{t('designPlayground', { ns: 'chatgpt' })}</p>
+          <Link className={styles.brand} to="/compare">{t('workspace', { ns: 'compare' })}</Link>
+          <p>{t('fictional', { ns: 'compare' })}</p>
         </div>
         <MatrixButton />
       </header>
       <div className={styles.columns}>
-        <nav className={styles.nav} aria-label="Comparison scenarios">
-          <NavLink end to="/compare">Scenario index</NavLink>
-          {scenarios.map((scenario) => <NavLink key={scenario.id} to={`/compare/${scenario.id}`}>{scenario.title}</NavLink>)}
+        <nav className={styles.nav} aria-label={t('scenarioRegister', { ns: 'compare' })}>
+          <NavLink end to="/compare">{t('index', { ns: 'compare' })}</NavLink>
+          {scenarios.map((scenario) => <NavLink key={scenario.id} to={`/compare/${scenario.id}`}>{t(`scenarioTitle.${scenario.id}`, { ns: 'compare' })}</NavLink>)}
         </nav>
         <main id="compare-main" className={styles.main}><Outlet /></main>
       </div>
     </div>
+    </ActiveRecordContext.Provider>
   );
 }
 
 export function CompareIndex() {
+  const { t } = useTranslation(['compare', 'common']);
   return (
     <>
-      <p className={styles.eyebrow}>Scenario register</p>
-      <h1>Compare Claude and ChatGPT proposals</h1>
-      <p>Use the same fictional task and criterion on each platform. Record observations separately, then document a recommendation or team decision. Recommended does not mean approved.</p>
-      <p>Claude's current prototype routes are linked below. Proposed platform URLs and all ChatGPT destinations are labeled until integrated.</p>
+      <p className={styles.eyebrow}>{t('scenarioRegister')}</p>
+      <h1>{t('title')}</h1>
+      <p>{t('indexIntro')} {t('localDraftNotice')}</p>
+      <p>{t('availabilityIntro')}</p>
       <div className={styles.tableScroll}>
         <table className={styles.table}>
-          <thead><tr><th scope="col">Scenario</th><th scope="col">Claude</th><th scope="col">ChatGPT</th><th scope="col">Decision</th></tr></thead>
+          <thead><tr><th scope="col">{t('scenario')}</th><th scope="col">{t('common:claude')}</th><th scope="col">{t('common:chatgpt')}</th><th scope="col">{t('decision')}</th></tr></thead>
           <tbody>{scenarios.map((scenario) => {
             const record = loadRecord(scenario);
             return <tr key={scenario.id}>
-              <th scope="row"><Link to={`/compare/${scenario.id}`}>{scenario.title}</Link><small>{scenario.record}</small></th>
-              <td><Link to={scenario.claudeCurrentUrl}>Current prototype</Link><small>Proposed /claude route: planned</small></td>
-              <td><span className={styles.availability}>Unavailable</span><small>{scenario.chatgpt.url}</small></td>
-              <td>{statusLabels[record.status]}</td>
+              <th scope="row"><Link to={`/compare/${scenario.id}`}>{t(`scenarioTitle.${scenario.id}`)}</Link><small>{t(`scenarioRecord.${scenario.id}`)}</small></th>
+              <td><Link to={scenario.claude.url}>{t('openScreen', { platform: t('common:claude') })}</Link><small>{t('common:available')} · {t('legacyUrl')}</small></td>
+              <td><span className={styles.availability}>{t('common:unavailable')}</span><small>{scenario.chatgpt.url}</small></td>
+              <td>{t(statusKeys[record.status])}</td>
             </tr>;
           })}</tbody>
         </table>
       </div>
-      <p className={styles.hint}>The CSV has one row per criterion, fixed scenario IDs, both platform URLs, observations, evidence, status, owner and rationale. Blank observations mean untested. Notes are stored only in this browser under a Compare namespace; download the CSV for review or handoff.</p>
+      <p className={styles.hint}>{t('csvHint')}</p>
     </>
   );
 }
 
 function ScenarioDetail({ scenario }: { scenario: Scenario }) {
+  const { t } = useTranslation('compare');
   const [record, setRecord] = useState<ComparisonRecord>(() => loadRecord(scenario));
   const [saved, setSaved] = useState(true);
+  const activeRecord = useContext(ActiveRecordContext);
+  useLayoutEffect(() => {
+    if (!activeRecord) return;
+    activeRecord.current = { scenarioId: scenario.id, record };
+    return () => {
+      if (activeRecord.current?.scenarioId === scenario.id) activeRecord.current = null;
+    };
+  }, [activeRecord, record, scenario.id]);
   function update(next: ComparisonRecord) {
     setRecord(next);
     setSaved(saveRecord(scenario, next));
@@ -90,48 +116,48 @@ function ScenarioDetail({ scenario }: { scenario: Scenario }) {
   }
   return (
     <>
-      <Link to="/compare">← All scenarios</Link>
-      <p className={styles.eyebrow}>{scenario.record}</p>
-      <h1>{scenario.title}</h1>
+      <Link to="/compare">{t('allScenarios')}</Link>
+      <p className={styles.eyebrow}>{t(`scenarioRecord.${scenario.id}`)}</p>
+      <h1>{t(`scenarioTitle.${scenario.id}`)}</h1>
       <section className={styles.card}>
-        <h2>Task and expected outcome</h2>
-        <p><strong>Task:</strong> {scenario.task}</p>
-        <p><strong>Expected:</strong> {scenario.expectedOutcome}</p>
-        <h3>Reproduction steps</h3>
-        <ol>{scenario.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+        <h2>{t('task')}</h2>
+        <p><strong>{t('taskLabel')}:</strong> {t(`scenarioTask.${scenario.id}`)}</p>
+        <p><strong>{t('expected')}:</strong> {t(`scenarioExpected.${scenario.id}`)}</p>
+        <h3>{t('steps')}</h3>
+        <ol>{scenario.steps.map((step, index) => <li key={index}>{t(`scenarioStep.${scenario.id}.${index}`, { defaultValue: step })}</li>)}</ol>
       </section>
       <div className={styles.destinationGrid}>
         <DestinationCard platform="Claude" destination={scenario.claude} currentUrl={scenario.claudeCurrentUrl} />
         <DestinationCard platform="ChatGPT" destination={scenario.chatgpt} />
       </div>
       <section className={styles.card}>
-        <div className={styles.sectionHeading}><h2>Evaluation matrix</h2><MatrixButton currentScenario={scenario} /></div>
-        <p>Use the same check on each platform. Put observed behavior in its own column. Evidence can be a screenshot filename, issue ID or safe link. Leave a cell blank when untested.</p>
+        <div className={styles.sectionHeading}><h2>{t('evaluation')}</h2><MatrixButton currentScenario={scenario} /></div>
+        <p>{t('sameCheck')}</p>
         <div className={styles.tableScroll}>
           <table className={styles.table}>
-            <thead><tr><th scope="col">Criterion and check</th><th scope="col">Claude observation</th><th scope="col">ChatGPT observation</th><th scope="col">Evidence notes</th></tr></thead>
+            <thead><tr><th scope="col">{t('criterionCheck')}</th><th scope="col">{t('claudeObservation')}</th><th scope="col">{t('chatgptObservation')}</th><th scope="col">{t('evidenceNotes')}</th></tr></thead>
             <tbody>{scenario.criteria.map((criterion) => <tr key={criterion.id}>
-              <th scope="row">{criterion.label}<small>{criterion.check}</small></th>
+              <th scope="row">{t(`criterionLabels.${criterion.id}`, { defaultValue: criterion.label })}<small>{t(`criterionChecks.${criterion.id}`, { defaultValue: criterion.check })}</small></th>
               {(['claude', 'chatgpt', 'evidence'] as const).map((field) => <td key={field}>
-                <label className={styles.visuallyHidden} htmlFor={`${scenario.id}-${criterion.id}-${field}`}>{criterion.label}: {field} note</label>
-                <textarea id={`${scenario.id}-${criterion.id}-${field}`} rows={3} value={record.notes[criterion.id]?.[field] ?? ''} onChange={(event) => updateNote(criterion.id, field, event.target.value)} placeholder={field === 'chatgpt' ? 'Untested — screen unavailable' : 'Observation or evidence'} />
+                <label className={styles.visuallyHidden} htmlFor={`${scenario.id}-${criterion.id}-${field}`}>{t(`criterionLabels.${criterion.id}`, { defaultValue: criterion.label })}: {t(`${field}Observation`, { defaultValue: field })}</label>
+                <textarea id={`${scenario.id}-${criterion.id}-${field}`} rows={3} value={record.notes[criterion.id]?.[field] ?? ''} onChange={(event) => updateNote(criterion.id, field, event.target.value)} placeholder={field === 'chatgpt' ? t('chatgptUntested') : t('noteHelp')} />
               </td>)}</tr>)}</tbody>
           </table>
         </div>
       </section>
       <section className={styles.card}>
-        <h2>Decision record</h2>
-        <p>Recommendation is a proposal. Use Approved only after a team decision, with owner, date, rationale and supporting evidence.</p>
+        <h2>{t('decisionRecord')}</h2>
+        <p>{t('localDraftNotice')}</p>
         <div className={styles.formGrid}>
-          <label>Status<select value={record.status} onChange={(event) => update({ ...record, status: event.target.value as DecisionStatus })}>
-            {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <label>{t('status')}<select value={record.status} onChange={(event) => update({ ...record, status: event.target.value as DecisionStatus })}>
+            {(['open', 'testing', 'recommended', 'approved', 'rejected'] as DecisionStatus[]).map((value) => <option key={value} value={value}>{t(statusKeys[value])}</option>)}
           </select></label>
-          <label>Decision owner<input value={record.owner} onChange={(event) => update({ ...record, owner: event.target.value })} placeholder="Team or reviewer" /></label>
-          <label>Decision date<input type="date" value={record.decisionDate} onChange={(event) => update({ ...record, decisionDate: event.target.value })} /></label>
+          <label>{t('decisionOwner')}<input value={record.owner} onChange={(event) => update({ ...record, owner: event.target.value })} placeholder={t('ownerPlaceholder')} /></label>
+          <label>{t('decisionDate')}<input type="date" value={record.decisionDate} onChange={(event) => update({ ...record, decisionDate: event.target.value })} /></label>
         </div>
-        <label>Rationale<textarea rows={4} value={record.rationale} onChange={(event) => update({ ...record, rationale: event.target.value })} placeholder="Why this status? Cite observations and tradeoffs." /></label>
-        <label>Open questions<textarea rows={4} value={record.openQuestions} onChange={(event) => update({ ...record, openQuestions: event.target.value })} /></label>
-        <p role="status" className={styles.hint}>{saved ? 'Notes saved in this browser.' : 'Browser storage is unavailable. Download the CSV before leaving this page.'}</p>
+        <label>{t('rationale')}<textarea rows={4} value={record.rationale} onChange={(event) => update({ ...record, rationale: event.target.value })} placeholder={t('rationalePlaceholder')} /></label>
+        <label>{t('openQuestions')}<textarea rows={4} value={record.openQuestions} onChange={(event) => update({ ...record, openQuestions: event.target.value })} /></label>
+        <p role="status" className={styles.hint}>{saved ? t('saved') : t('storageUnavailable')}</p>
       </section>
     </>
   );
@@ -140,16 +166,11 @@ function ScenarioDetail({ scenario }: { scenario: Scenario }) {
 export function CompareScenarioPage() {
   const { scenarioId } = useParams<{ scenarioId: string }>();
   const scenario = scenarioById.get(scenarioId ?? '');
-  if (!scenario) return <><h1>Scenario not found</h1><p><Link to="/compare">Return to scenario index</Link></p></>;
+  if (!scenario) return <UnknownScenario />;
   return <ScenarioDetail key={scenario.id} scenario={scenario} />;
 }
 
-// Mount this route object as a sibling of the platform route trees. The parent
-// router keeps responsibility for its basename and provider composition.
-export const compareRoute: RouteObject = {
-  path: 'compare', element: <CompareLayout />,
-  children: [
-    { index: true, element: <CompareIndex /> },
-    { path: ':scenarioId', element: <CompareScenarioPage /> }
-  ]
-};
+function UnknownScenario() {
+  const { t } = useTranslation('compare');
+  return <><h1>{t('unknown')}</h1><p><Link to="/compare">{t('returnIndex')}</Link></p></>;
+}

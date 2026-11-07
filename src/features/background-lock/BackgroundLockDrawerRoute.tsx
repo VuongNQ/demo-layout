@@ -1,5 +1,7 @@
+import { claudePath } from '@/claude/routes/route-meta';
 import { Drawer, Form, Button, Space, Skeleton } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { BackgroundLockForm, type BackgroundLockFormValues } from './BackgroundLockForm';
 import { useBackgroundLockDetailQuery, useUpdateBackgroundLockMutation } from './background-lock.queries.hook';
 
@@ -8,6 +10,7 @@ import { useBackgroundLockDetailQuery, useUpdateBackgroundLockMutation } from '.
 // layout note's "which threshold" question should be easy to answer:
 // this one should clearly stay a Drawer.
 export function BackgroundLockDrawerRoute() {
+  const { t } = useTranslation('claude');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: item, isLoading } = useBackgroundLockDetailQuery(id);
@@ -15,7 +18,7 @@ export function BackgroundLockDrawerRoute() {
   const [form] = Form.useForm<BackgroundLockFormValues>();
 
   function handleClose() {
-    navigate('/background-locks');
+    navigate(claudePath('backgroundLocks'));
   }
 
   async function handleSave() {
@@ -28,15 +31,15 @@ export function BackgroundLockDrawerRoute() {
   return (
     <Drawer
       open
-      title={`Cài đặt: ${item?.name ?? ''}`}
+      title={t('pages.promotionType.configure', { name: item?.name ?? '' })}
       width={420}
       onClose={handleClose}
       destroyOnClose
       footer={
         <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={handleClose}>Hủy</Button>
+          <Button onClick={handleClose}>{t('pages.background.cancel')}</Button>
           <Button type="primary" loading={updateMutation.isPending} onClick={() => void handleSave()}>
-            Lưu
+            {t('pages.background.save')}
           </Button>
         </Space>
       }

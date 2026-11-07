@@ -1,6 +1,7 @@
 import { Form, Input, Select, DatePicker, Avatar, Space, Button, type FormInstance } from 'antd';
 import { PictureOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { useTranslation } from 'react-i18next';
 import type { BackgroundLock } from './demo-background-lock-data';
 
 export type BackgroundLockFormValues = Omit<BackgroundLock, 'id' | 'priority'>;
@@ -15,9 +16,10 @@ type BackgroundLockFormProps = {
 // substrate can be judged against a screen it clearly fits, not only
 // against the long-form case.
 export function BackgroundLockForm({ form, initialValues }: BackgroundLockFormProps) {
+  const { t } = useTranslation('claude');
   return (
     <Form<BackgroundLockFormValues> form={form} layout="vertical" initialValues={initialValues}>
-      <Form.Item label="Ảnh xem trước">
+      <Form.Item label={t('pages.background.preview')}>
         <Space>
           <Avatar
             shape="square"
@@ -25,28 +27,28 @@ export function BackgroundLockForm({ form, initialValues }: BackgroundLockFormPr
             style={{ backgroundColor: initialValues?.imagePreviewColor ?? '#d9d9d9' }}
             icon={<PictureOutlined />}
           />
-          <Button disabled>Chọn ảnh (demo, không upload thật)</Button>
+          <Button disabled>{t('pages.background.chooseImage')}</Button>
         </Space>
       </Form.Item>
-      <Form.Item name="name" label="Tên" rules={[{ required: true, message: 'Bắt buộc' }]}>
+      <Form.Item name="name" label={t('pages.background.name')} rules={[{ required: true, message: t('validation:required') }]}>
         <Input />
       </Form.Item>
-      <Form.Item name="status" label="Trạng thái" rules={[{ required: true }]}>
+      <Form.Item name="status" label={t('pages.background.status')} rules={[{ required: true, message: t('validation:required') }]}>
         <Select
           options={[
-            { value: 'active', label: 'Active' },
-            { value: 'draft', label: 'Draft' },
-            { value: 'inactive', label: 'Inactive' }
+            { value: 'active', label: t('pages.background.active') },
+            { value: 'draft', label: t('pages.background.draft') },
+            { value: 'inactive', label: t('pages.background.inactive') }
           ]}
         />
       </Form.Item>
-      <Form.Item name="customerSegments" label="Phân khúc khách hàng" rules={[{ required: true }]}>
+      <Form.Item name="customerSegments" label={t('pages.background.segments')} rules={[{ required: true, message: t('validation:required') }]}>
         <Select
           mode="multiple"
           options={['Khách hàng mới', 'Khách hàng VIP', 'Khách hàng doanh nghiệp'].map((v) => ({ value: v, label: v }))}
         />
       </Form.Item>
-      <Form.Item label="Thời gian hiệu lực" required>
+      <Form.Item label={t('pages.background.validity')} required>
         <Space.Compact>
           <Form.Item
             name="effectiveFrom"
@@ -54,7 +56,7 @@ export function BackgroundLockForm({ form, initialValues }: BackgroundLockFormPr
             getValueProps={(value) => ({ value: value ? dayjs(value) : undefined })}
             normalize={(value) => value?.format('YYYY-MM-DD')}
           >
-            <DatePicker placeholder="Từ ngày" />
+            <DatePicker placeholder={t('pages.background.from')} />
           </Form.Item>
           <Form.Item
             name="effectiveTo"
@@ -62,7 +64,7 @@ export function BackgroundLockForm({ form, initialValues }: BackgroundLockFormPr
             getValueProps={(value) => ({ value: value ? dayjs(value) : undefined })}
             normalize={(value) => value?.format('YYYY-MM-DD')}
           >
-            <DatePicker placeholder="Đến ngày" />
+            <DatePicker placeholder={t('pages.background.to')} />
           </Form.Item>
         </Space.Compact>
       </Form.Item>

@@ -1,5 +1,7 @@
+import { claudePath } from '@/claude/routes/route-meta';
 import { Drawer, Form, Button, Space, Skeleton } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { PromotionTypeForm, type PromotionTypeFormValues } from './PromotionTypeForm';
 import {
   useCreatePromotionTypeMutation,
@@ -12,6 +14,7 @@ const EMPTY_INITIAL_VALUES: PromotionTypeFormValues = { name: '', code: '', stat
 // Matches the real repo's "view/edit drawer" shape for promotion-type —
 // no delete action, status is toggled from the list (see PromotionTypesListPage).
 export function PromotionTypeDrawerRoute() {
+  const { t } = useTranslation('claude');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const isCreate = id === undefined;
@@ -21,7 +24,7 @@ export function PromotionTypeDrawerRoute() {
   const [form] = Form.useForm<PromotionTypeFormValues>();
 
   function handleClose() {
-    navigate('/promotion-types');
+    navigate(claudePath('promotionTypes'));
   }
 
   async function handleSave() {
@@ -37,15 +40,15 @@ export function PromotionTypeDrawerRoute() {
   return (
     <Drawer
       open
-      title={isCreate ? 'Thêm loại khuyến mãi' : `Cài đặt: ${item?.name ?? ''}`}
+      title={isCreate ? t('pages.promotionType.add') : t('pages.promotionType.configure', { name: item?.name ?? '' })}
       width={420}
       onClose={handleClose}
       destroyOnClose
       footer={
         <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={handleClose}>Hủy</Button>
+          <Button onClick={handleClose}>{t('pages.promotionType.cancel')}</Button>
           <Button type="primary" loading={createMutation.isPending || updateMutation.isPending} onClick={() => void handleSave()}>
-            Lưu
+            {t('pages.promotionType.save')}
           </Button>
         </Space>
       }

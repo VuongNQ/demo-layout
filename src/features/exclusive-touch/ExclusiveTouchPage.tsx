@@ -4,12 +4,14 @@ import dayjs from 'dayjs';
 import { AssignProductsDrawer } from './AssignProductsDrawer';
 import { AUDIENCE_SEGMENTS, type LayoutType } from './demo-exclusive-touch-data';
 import { useExclusiveTouchPreviewQuery, useLayoutTypesQuery, useUpdateExclusiveTouchPreviewMutation } from './exclusive-touch.queries.hook';
+import { useTranslation } from 'react-i18next';
 
 // Browse-by-type list (keyword/status filter, counts) + bulk-assign Drawer
 // + a mobile preview panel (audience + start date) + a static sample grid —
 // matches the real submodule's shape. No create/edit/view flow for an
 // individual entity — the layout types themselves are fixed.
 export function ExclusiveTouchPage() {
+  const { t } = useTranslation('claude');
   const { data: layoutTypes = [], isLoading } = useLayoutTypesQuery();
   const { data: preview } = useExclusiveTouchPreviewQuery();
   const updatePreviewMutation = useUpdateExclusiveTouchPreviewMutation();
@@ -31,25 +33,25 @@ export function ExclusiveTouchPage() {
   async function handleSavePreview() {
     if (!draft) return;
     await updatePreviewMutation.mutateAsync(draft);
-    message.success('Đã lưu preview.');
+    message.success(t('pages.exclusiveTouch.saved'));
   }
 
   return (
     <>
-      <Typography.Title level={4}>Gán sản phẩm theo loại hiển thị</Typography.Title>
+      <Typography.Title level={4}>{t('pages.exclusiveTouch.title')}</Typography.Title>
 
       <Row gutter={24}>
         <Col xs={24} lg={16}>
           <Space style={{ marginBottom: 12 }}>
-            <Input.Search placeholder="Tìm theo tên loại" value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 240 }} />
+            <Input.Search placeholder={t('pages.exclusiveTouch.search')} value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 240 }} />
             <Select
               value={statusFilter}
               onChange={setStatusFilter}
               style={{ width: 160 }}
               options={[
-                { value: 'all', label: 'Tất cả trạng thái' },
-                { value: 'active', label: 'Active' },
-                { value: 'inactive', label: 'Inactive' }
+                { value: 'all', label: t('pages.exclusiveTouch.all') },
+                { value: 'active', label: t('pages.exclusiveTouch.active') },
+                { value: 'inactive', label: t('pages.exclusiveTouch.inactive') }
               ]}
             />
           </Space>
@@ -59,19 +61,19 @@ export function ExclusiveTouchPage() {
             dataSource={filtered}
             pagination={false}
             columns={[
-              { title: 'Loại hiển thị', dataIndex: 'name' },
+              { title: t('pages.exclusiveTouch.type'), dataIndex: 'name' },
               {
-                title: 'Trạng thái',
+                title: t('pages.exclusiveTouch.status'),
                 dataIndex: 'status',
-                render: (status: LayoutType['status']) => <Tag color={status === 'active' ? 'green' : 'default'}>{status}</Tag>
+                render: (status: LayoutType['status']) => <Tag color={status === 'active' ? 'green' : 'default'}>{t(`pages.exclusiveTouch.${status}`)}</Tag>
               },
-              { title: 'Số sản phẩm đã gán', key: 'count', render: (_, record) => record.assignedProductIds.length },
+              { title: t('pages.exclusiveTouch.count'), key: 'count', render: (_, record) => record.assignedProductIds.length },
               {
                 title: '',
                 key: 'actions',
                 render: (_, record) => (
                   <Button type="link" onClick={() => setEditingType(record)}>
-                    Gán sản phẩm
+                    {t('pages.exclusiveTouch.assign')}
                   </Button>
                 )
               }
@@ -80,30 +82,30 @@ export function ExclusiveTouchPage() {
         </Col>
 
         <Col xs={24} lg={8}>
-          <Card title="Preview mobile" size="small" style={{ marginBottom: 16 }}>
+          <Card title={t('pages.exclusiveTouch.mobilePreview')} size="small" style={{ marginBottom: 16 }}>
             {draft && (
               <Space direction="vertical" style={{ width: '100%' }}>
-                <Typography.Text type="secondary">Phân khúc khách hàng</Typography.Text>
+                <Typography.Text type="secondary">{t('pages.exclusiveTouch.segments')}</Typography.Text>
                 <Select
                   style={{ width: '100%' }}
                   value={draft.audienceSegment}
                   onChange={(v) => setPreviewDraft({ ...draft, audienceSegment: v })}
                   options={AUDIENCE_SEGMENTS.map((v) => ({ value: v, label: v }))}
                 />
-                <Typography.Text type="secondary">Ngày bắt đầu</Typography.Text>
+                <Typography.Text type="secondary">{t('pages.exclusiveTouch.startDate')}</Typography.Text>
                 <DatePicker
                   style={{ width: '100%' }}
                   value={dayjs(draft.startDate)}
                   onChange={(d) => setPreviewDraft({ ...draft, startDate: d?.format('YYYY-MM-DD') ?? draft.startDate })}
                 />
                 <Button type="primary" block loading={updatePreviewMutation.isPending} onClick={() => void handleSavePreview()}>
-                  Lưu preview
+                  {t('pages.exclusiveTouch.savePreview')}
                 </Button>
               </Space>
             )}
           </Card>
 
-          <Card title="Mẫu lưới hiển thị" size="small">
+          <Card title={t('pages.exclusiveTouch.sampleGrid')} size="small">
             <Row gutter={[8, 8]}>
               {Array.from({ length: 4 }, (_, i) => (
                 <Col span={12} key={i}>
@@ -112,7 +114,7 @@ export function ExclusiveTouchPage() {
               ))}
             </Row>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              Mẫu tĩnh, không phải dữ liệu thật.
+              {t('pages.exclusiveTouch.staticNote')}
             </Typography.Text>
           </Card>
         </Col>

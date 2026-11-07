@@ -59,6 +59,13 @@ export function saveRecord(scenario: Scenario, record: ComparisonRecord): boolea
   }
 }
 
+export function recordsForMatrix(scenarios: Scenario[], visible?: { scenarioId: string; record: ComparisonRecord } | null): Record<string, ComparisonRecord> {
+  return Object.fromEntries(scenarios.map((scenario) => [
+    scenario.id,
+    visible?.scenarioId === scenario.id ? visible.record : loadRecord(scenario)
+  ]));
+}
+
 export function matrixCsv(scenarios: Scenario[], records: Record<string, ComparisonRecord>): string {
   const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
   const rows = [['scenario_id', 'scenario', 'fictional_record', 'task', 'expected_outcome', 'reproduction_steps', 'criterion_id', 'criterion', 'check', 'claude_url', 'claude_current_url', 'claude_availability', 'chatgpt_url', 'chatgpt_availability', 'claude_observation', 'chatgpt_observation', 'evidence', 'decision_status', 'decision_owner', 'decision_date', 'rationale', 'open_questions']];
@@ -81,7 +88,7 @@ export function downloadMatrix(scenarios: Scenario[], records: Record<string, Co
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = 'compare-matrix.csv';
+  link.download = 'compare-matrix-local-draft.csv';
   document.body.append(link);
   link.click();
   link.remove();

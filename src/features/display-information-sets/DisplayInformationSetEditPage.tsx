@@ -1,11 +1,14 @@
+import { claudePath } from '@/claude/routes/route-meta';
 import { useState } from 'react';
 import { Form, Skeleton, Typography, message, Button, Space } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { DisplayInformationSetForm, type DisplayInformationSetFormValues } from './DisplayInformationSetForm';
 import { useDisplayInformationSetDetailQuery, useUpdateDisplayInformationSetMutation } from './display-information-sets.queries.hook';
 import { ContextualSaveBar, ContextualSaveBarSpacer } from '@/components/ContextualSaveBar';
+import { useTranslation } from 'react-i18next';
 
 export function DisplayInformationSetEditPage() {
+  const { t } = useTranslation('claude');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: item, isLoading } = useDisplayInformationSetDetailQuery(id);
@@ -18,7 +21,7 @@ export function DisplayInformationSetEditPage() {
     const values = await form.validateFields();
     await updateMutation.mutateAsync({ id, patch: values });
     setIsDirty(false);
-    message.success('Đã lưu.');
+    message.success(t('pages.displaySet.saved'));
   }
 
   function handleDiscard() {
@@ -35,17 +38,17 @@ export function DisplayInformationSetEditPage() {
       <ContextualSaveBar
         visible={isDirty}
         saving={updateMutation.isPending}
-        label={`Có thay đổi chưa lưu — ${item.name}`}
+        label={t('productSettings.dirty', { name: item.name })}
         onSave={() => void handleSave()}
         onDiscard={handleDiscard}
       />
       <ContextualSaveBarSpacer visible={isDirty} />
       <Space align="center" style={{ marginBottom: 8 }}>
-        <Button type="link" disabled={isDirty} onClick={() => navigate('/display-information-sets')}>
-          ← Quay lại danh sách
+        <Button type="link" disabled={isDirty} onClick={() => navigate(claudePath('displayInformationSets'))}>
+          {t('pages.displaySet.back')}
         </Button>
       </Space>
-      <Typography.Title level={4}>Bộ hiển thị: {item.name}</Typography.Title>
+      <Typography.Title level={4}>{t('pages.displaySet.title', { name: item.name })}</Typography.Title>
       <DisplayInformationSetForm form={form} initialValues={item} onValuesChange={() => setIsDirty(true)} />
     </>
   );

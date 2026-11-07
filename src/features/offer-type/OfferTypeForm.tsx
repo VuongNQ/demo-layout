@@ -1,4 +1,5 @@
 import { Form, Input, InputNumber, Select, Switch, Tabs, type FormInstance } from 'antd';
+import { useTranslation } from 'react-i18next';
 import type { OfferType } from '@/data/demo-data';
 import styles from './OfferTypeForm.module.scss';
 
@@ -20,6 +21,8 @@ type OfferTypeFormProps = {
 // section+Anchor layout) forks this into a second variant later — this is
 // not that experiment yet.
 export function OfferTypeForm({ form, initialValues }: OfferTypeFormProps) {
+  const { t } = useTranslation('claude');
+  const offer = (key: string) => t(`offer.${key}`);
   return (
     <Form<OfferTypeFormValues>
       className={styles.form}
@@ -27,15 +30,15 @@ export function OfferTypeForm({ form, initialValues }: OfferTypeFormProps) {
       layout="vertical"
       initialValues={initialValues}
     >
-      <Form.Item name="name" label="Tên ưu đãi" rules={[{ required: true, message: 'Bắt buộc' }]}>
+      <Form.Item name="name" label={offer('name')} rules={[{ required: true, message: t('validation:required') }]}>
         <Input />
       </Form.Item>
-      <Form.Item name="status" label="Trạng thái" rules={[{ required: true }]}>
+      <Form.Item name="status" label={offer('status')} rules={[{ required: true }]}>
         <Select
           options={[
-            { value: 'active', label: 'Active' },
-            { value: 'draft', label: 'Draft' },
-            { value: 'inactive', label: 'Inactive' }
+            { value: 'active', label: offer('active') },
+            { value: 'draft', label: offer('draft') },
+            { value: 'inactive', label: offer('inactive') }
           ]}
         />
       </Form.Item>
@@ -44,22 +47,22 @@ export function OfferTypeForm({ form, initialValues }: OfferTypeFormProps) {
         items={[
           {
             key: 'general',
-            label: 'Thông tin chung',
+            label: offer('general'),
             children: (
               <>
-                <Form.Item name={['general', 'description']} label="Mô tả">
+                <Form.Item name={['general', 'description']} label={offer('description')}>
                   <Input.TextArea rows={3} />
                 </Form.Item>
-                <Form.Item name={['general', 'code']} label="Mã" rules={[{ required: true }]}>
+                <Form.Item name={['general', 'code']} label={offer('code')} rules={[{ required: true, message: t('validation:required') }]}>
                   <Input />
                 </Form.Item>
-                <Form.Item name={['general', 'discountPercent']} label="Giảm giá (%)">
+                <Form.Item name={['general', 'discountPercent']} label={offer('discountPercent')}>
                   <InputNumber min={0} max={100} style={{ width: '100%' }} />
                 </Form.Item>
-                <Form.Item name={['general', 'discountAmount']} label="Giảm giá (số tiền)">
+                <Form.Item name={['general', 'discountAmount']} label={offer('discountAmount')}>
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
-                <Form.Item name={['general', 'minOrderAmount']} label="Giá trị đơn hàng tối thiểu">
+                <Form.Item name={['general', 'minOrderAmount']} label={offer('minOrder')}>
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </>
@@ -67,22 +70,22 @@ export function OfferTypeForm({ form, initialValues }: OfferTypeFormProps) {
           },
           {
             key: 'eligibility',
-            label: 'Điều kiện áp dụng',
+            label: offer('eligibility'),
             children: (
               <>
-                <Form.Item name={['eligibility', 'customerSegments']} label="Phân khúc khách hàng">
-                  <Select mode="multiple" options={['Khách hàng mới', 'Khách hàng VIP', 'Khách hàng doanh nghiệp', 'Khách hàng cá nhân'].map((v) => ({ value: v, label: v }))} />
+                <Form.Item name={['eligibility', 'customerSegments']} label={offer('segments')}>
+                  <Select mode="multiple" options={[['Khách hàng mới', offer('newCustomers')], ['Khách hàng VIP', offer('vipCustomers')], ['Khách hàng doanh nghiệp', offer('businessCustomers')], ['Khách hàng cá nhân', offer('individualCustomers')]].map(([value, label]) => ({ value, label }))} />
                 </Form.Item>
-                <Form.Item name={['eligibility', 'requiresApproval']} label="Cần phê duyệt" valuePropName="checked">
+                <Form.Item name={['eligibility', 'requiresApproval']} label={offer('requiresApproval')} valuePropName="checked">
                   <Switch />
                 </Form.Item>
-                <Form.Item name={['eligibility', 'combinable']} label="Có thể kết hợp" valuePropName="checked">
+                <Form.Item name={['eligibility', 'combinable']} label={offer('combinable')} valuePropName="checked">
                   <Switch />
                 </Form.Item>
-                <Form.Item name={['eligibility', 'firstTimeOnly']} label="Chỉ lần đầu" valuePropName="checked">
+                <Form.Item name={['eligibility', 'firstTimeOnly']} label={offer('firstTimeOnly')} valuePropName="checked">
                   <Switch />
                 </Form.Item>
-                <Form.Item name={['eligibility', 'maxRedemptions']} label="Số lần sử dụng tối đa">
+                <Form.Item name={['eligibility', 'maxRedemptions']} label={offer('maxRedemptions')}>
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </>
@@ -90,28 +93,28 @@ export function OfferTypeForm({ form, initialValues }: OfferTypeFormProps) {
           },
           {
             key: 'notification',
-            label: 'Thông báo',
+            label: offer('notifications'),
             children: (
               <>
-                <Form.Item name={['notification', 'notifyOnExpiry']} label="Thông báo khi hết hạn" valuePropName="checked">
+                <Form.Item name={['notification', 'notifyOnExpiry']} label={offer('notifyExpiry')} valuePropName="checked">
                   <Switch />
                 </Form.Item>
-                <Form.Item name={['notification', 'notifyChannel']} label="Kênh thông báo">
+                <Form.Item name={['notification', 'notifyChannel']} label={offer('channel')}>
                   <Select
                     options={[
                       { value: 'email', label: 'Email' },
                       { value: 'sms', label: 'SMS' },
                       { value: 'push', label: 'Push' },
-                      { value: 'none', label: 'Không' }
+                      { value: 'none', label: offer('none') }
                     ]}
                   />
                 </Form.Item>
-                <Form.Item name={['notification', 'ownerEmail']} label="Email chủ sở hữu">
+                <Form.Item name={['notification', 'ownerEmail']} label={offer('ownerEmail')}>
                   <Input />
                 </Form.Item>
                 <Form.Item
                   name={['notification', 'reminderDaysBefore']}
-                  label="Số ngày nhắc trước"
+                  label={offer('reminderDays')}
                   rules={[
                     {
                       validator: async (_, value) => {
@@ -119,7 +122,7 @@ export function OfferTypeForm({ form, initialValues }: OfferTypeFormProps) {
                         // can demonstrate this exact error being invisible
                         // when the first two tabs are showing.
                         if (value > 30) {
-                          throw new Error('Không được nhắc trước quá 30 ngày');
+                          throw new Error(offer('reminderError'));
                         }
                       }
                     }

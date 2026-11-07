@@ -10,7 +10,10 @@ import {
   ToolOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { menuTree, type MenuNode } from '@/menu/menu-tree';
+import { menuTranslationKeys } from '@/claude/navigation/menu-meta';
 import { useCurrentUser } from '@/hooks/use-current-user.hook';
 import type { ItemType } from 'antd/es/menu/interface';
 import { DevPanel } from './DevPanel';
@@ -39,7 +42,7 @@ function hasAnyPermission(userPermissions: string[], required?: string): boolean
   return userPermissions.includes(required);
 }
 
-function toMenuItems(nodes: MenuNode[], userPermissions: string[]): ItemType[] {
+function toMenuItems(nodes: MenuNode[], userPermissions: string[], translate: TFunction<'navigation'>): ItemType[] {
   return nodes
     .filter((node) => hasAnyPermission(userPermissions, node.permission))
     .map((node): ItemType => {
@@ -47,12 +50,12 @@ function toMenuItems(nodes: MenuNode[], userPermissions: string[]): ItemType[] {
       if (node.children) {
         return {
           key: node.key,
-          label: node.label,
+          label: translate(menuTranslationKeys[node.key] ?? node.key, { defaultValue: node.label }),
           icon,
-          children: toMenuItems(node.children, userPermissions)
+          children: toMenuItems(node.children, userPermissions, translate)
         };
       }
-      return { key: node.path ?? node.key, label: node.label, icon };
+      return { key: node.path ?? node.key, label: translate(menuTranslationKeys[node.key] ?? node.key, { defaultValue: node.label }), icon };
     });
 }
 
@@ -60,8 +63,9 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { permissions } = useCurrentUser();
+  const { t } = useTranslation('navigation');
 
-  const items = toMenuItems(menuTree, permissions);
+  const items = toMenuItems(menuTree, permissions, t);
 
   return (
     <div className={styles.root}>
@@ -78,7 +82,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
       />
       <div className={styles.footer}>
         <Typography.Text type="secondary" className={styles.footerLabel}>
-          {collapsed ? 'v0.1' : 'Demo layout v0.1 — nội bộ, không public'}
+          {collapsed ? 'v0.1' : t('demoFooter')}
         </Typography.Text>
         {/* DevPanel sits below the sidebar's own footer line, as requested —
             still presenter-visible, just out of the content area. Hidden

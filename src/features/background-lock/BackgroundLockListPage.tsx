@@ -1,3 +1,4 @@
+import { claudePath } from '@/claude/routes/route-meta';
 import { Table, Tag, Avatar } from 'antd';
 import { PictureOutlined } from '@ant-design/icons';
 import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -5,12 +6,14 @@ import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-ki
 import { Link, Outlet } from 'react-router-dom';
 import { useBackgroundLockListQuery, useReorderBackgroundLocksMutation } from './background-lock.queries.hook';
 import { DragHandle, SortableRow } from '@/components/SortableRow';
+import { useTranslation } from 'react-i18next';
 import type { BackgroundLock } from './demo-background-lock-data';
 
 // Same reorder mechanics as offer-type (shared SortableRow/DragHandle),
 // but over an UNPAGINATED list — this is the dataset experiment 2
 // compares against offer-type's 120-row paginated case.
 export function BackgroundLockListPage() {
+  const { t } = useTranslation('claude');
   const { data: items = [], isLoading } = useBackgroundLockListQuery();
   const reorderMutation = useReorderBackgroundLocksMutation();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -38,31 +41,31 @@ export function BackgroundLockListPage() {
             columns={[
               { key: 'drag', width: 32, render: () => <DragHandle /> },
               {
-                title: 'Ảnh',
+                title: t('pages.background.image'),
                 key: 'image',
                 width: 56,
                 render: (_, record) => (
                   <Avatar shape="square" style={{ backgroundColor: record.imagePreviewColor }} icon={<PictureOutlined />} />
                 )
               },
-              { title: 'Tên', dataIndex: 'name' },
+              { title: t('pages.background.name'), dataIndex: 'name' },
               {
-                title: 'Trạng thái',
+                title: t('pages.background.status'),
                 dataIndex: 'status',
                 render: (status: BackgroundLock['status']) => (
-                  <Tag color={status === 'active' ? 'green' : status === 'draft' ? 'gold' : 'default'}>{status}</Tag>
+                  <Tag color={status === 'active' ? 'green' : status === 'draft' ? 'gold' : 'default'}>{t(`pages.background.${status}`)}</Tag>
                 )
               },
               {
-                title: 'Phân khúc',
+                title: t('pages.background.segments'),
                 dataIndex: 'customerSegments',
                 render: (segments: string[]) => segments.join(', ')
               },
-              { title: 'Thứ tự', dataIndex: 'priority', width: 80 },
+              { title: t('pages.background.order'), dataIndex: 'priority', width: 80 },
               {
                 title: '',
                 key: 'actions',
-                render: (_, record) => <Link to={`/background-locks/${record.id}`}>Cài đặt</Link>
+                render: (_, record) => <Link to={claudePath('backgroundLockDetail', { id: record.id })}>{t('pages.background.configure')}</Link>
               }
             ]}
           />

@@ -1,5 +1,6 @@
 import { Button, Typography } from 'antd';
 import styles from './ContextualSaveBar.module.scss';
+import { useTranslation } from 'react-i18next';
 
 type ContextualSaveBarProps = {
   visible: boolean;
@@ -20,15 +21,16 @@ type ContextualSaveBarProps = {
 // top of the page content) so the page doesn't jump when the bar's fixed
 // overlay appears — see ProductSettingsEditPage for the usage.
 export function ContextualSaveBar({ visible, saving, label, onSave, onDiscard }: ContextualSaveBarProps) {
+  const { t } = useTranslation('claude');
   return (
     <div className={`${styles.bar} ${visible ? styles.visible : ''}`} aria-hidden={!visible}>
-      <Typography.Text style={{ color: '#fff' }}>{label ?? 'Có thay đổi chưa lưu'}</Typography.Text>
+      <Typography.Text style={{ color: '#fff' }}>{label ?? t('common:unsavedChanges')}</Typography.Text>
       <div>
         <Button type="text" style={{ color: '#fff' }} onClick={onDiscard} disabled={saving}>
-          Huỷ thay đổi
+          {t('common:discardChanges')}
         </Button>
         <Button type="primary" onClick={onSave} loading={saving}>
-          Lưu
+          {t('common:save')}
         </Button>
       </div>
     </div>

@@ -1,64 +1,35 @@
+import { claudePath } from '@/claude/routes/route-meta';
 import { useState } from 'react';
 import { Card, Typography, Input, Space, Tag } from 'antd';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 type DecisionItem = {
   id: string;
-  title: string;
-  context: string;
-  link?: { to: string; label: string };
+  linkTo?: string;
 };
 
 const DECISIONS: DecisionItem[] = [
-  {
-    id: 'drawer-vs-page-threshold',
-    title: '1. Ngưỡng Drawer vs Full-Page',
-    context:
-      'offer-type (30 trường, 120 item) dùng cả hai nền A/B; background-locks (6 trường, 10 item) chỉ Drawer. Chốt tiêu chí: số trường? có Tabs/nhóm hay không?',
-    link: { to: '/offer-types', label: 'Xem offer-types (A/B)' }
-  },
-  {
-    id: 'brand-token',
-    title: '2. Giá trị token màu brand thật',
-    context:
-      'colorPrimary hiện để #1677ff (default AntD 5), chỉ là placeholder. Cần giá trị brand thật và xác định nguồn sự thật duy nhất (ConfigProvider vs custom-ant.scss) trong repo thật.'
-  },
-  {
-    id: 'unsaved-changes-overlay',
-    title: '3. Guard unsaved-changes khi đóng overlay',
-    context: 'Đóng Drawer bằng Hủy/X/mask/ESC — guard có được hỏi không? Khác nhau giữa state cục bộ và gắn route.',
-    link: { to: '/experiments/unsaved-changes', label: 'Chạy thí nghiệm 1' }
-  },
-  {
-    id: 'breadcrumb-no-menu',
-    title: '4. Breadcrumb cho route không có menu entry',
-    context: 'Route /offer-types/:id/edit không có menu entry — breadcrumb trống, giống ca background-main-lock thật (đổi tên từ theme-lock ngày 2026-10-21, vẫn chưa có menu entry). Có cần xử lý khác đi không?',
-    link: { to: '/offer-types', label: 'Xem (mở 1 item rồi "Mở toàn trang")' }
-  },
-  {
-    id: 'global-search',
-    title: '5. Global search (Ctrl+K)',
-    context: 'Khuyến nghị ban đầu: KHÔNG làm trước go-live — chưa có registry field settings, và guard đã có keyboard fallback. Xác nhận lại.',
-  },
-  {
-    id: 'sidebar-depth',
-    title: '6. Sidebar tầng 3',
-    context: 'Menu demo hiện có đúng 3 tầng (Sản phẩm > Quản lý ưu đãi > Loại ưu đãi). Có giữ mở sâu vậy hay rút về 2 tầng + tab dọc trong trang cho Settings?'
-  },
-  {
-    id: 'edit-route-pattern',
-    title: '7. Pattern route edit cho Drawer',
-    context:
-      'promotion-type thật thiếu route edit, PROMOTION_MANAGEMENT_EDIT không dùng. Ở đây offer-type dùng chung route :id cho view/edit + nút "Mở toàn trang". Có áp dụng pattern này cho promotion-type thật không?',
-    link: { to: '/offer-types', label: 'Xem offer-types' }
-  },
-  {
-    id: 'reorder-pagination-mode',
-    title: '8. Chế độ kéo thả + phân trang',
-    context: 'offer-type (phân trang, kéo trong trang) và background-locks (không phân trang) đang khác nhau. Chốt một chế độ áp dụng chung.',
-    link: { to: '/experiments/reorder-pagination', label: 'Chạy thí nghiệm 2' }
-  }
+  { id: 'drawer-vs-page-threshold', linkTo: claudePath('offerTypes') },
+  { id: 'brand-token' },
+  { id: 'unsaved-changes-overlay', linkTo: claudePath('unsavedChanges') },
+  { id: 'breadcrumb-no-menu', linkTo: claudePath('offerTypes') },
+  { id: 'global-search' },
+  { id: 'sidebar-depth' },
+  { id: 'edit-route-pattern', linkTo: claudePath('offerTypes') },
+  { id: 'reorder-pagination-mode', linkTo: claudePath('reorderPagination') }
 ];
+
+const DECISION_LABELS: Record<string, { title: string; context: string; link?: string }> = {
+  'drawer-vs-page-threshold': { title: 'offerThreshold', context: 'offerThresholdContext', link: 'offerLink' },
+  'brand-token': { title: 'brandToken', context: 'brandTokenContext' },
+  'unsaved-changes-overlay': { title: 'unsaved', context: 'unsavedContext', link: 'runUnsaved' },
+  'breadcrumb-no-menu': { title: 'breadcrumb', context: 'breadcrumbContext', link: 'openFullPage' },
+  'global-search': { title: 'search', context: 'searchContext' },
+  'sidebar-depth': { title: 'depth', context: 'depthContext' },
+  'edit-route-pattern': { title: 'editRoute', context: 'editRouteContext', link: 'offerLinkShort' },
+  'reorder-pagination-mode': { title: 'reorder', context: 'reorderContext', link: 'runReorder' }
+};
 
 function loadNote(id: string): string {
   try {
@@ -78,19 +49,21 @@ function saveNote(id: string, value: string) {
 }
 
 function DecisionCard({ item }: { item: DecisionItem }) {
+  const { t } = useTranslation('claude');
   const [note, setNote] = useState(() => loadNote(item.id));
+  const label = DECISION_LABELS[item.id];
 
   return (
-    <Card size="small" style={{ marginBottom: 12 }} title={item.title}>
-      <Typography.Paragraph>{item.context}</Typography.Paragraph>
+    <Card size="small" style={{ marginBottom: 12 }} title={t(`pages.decisions.${label.title}`)}>
+      <Typography.Paragraph>{t(`pages.decisions.${label.context}`)}</Typography.Paragraph>
       <Space direction="vertical" style={{ width: '100%' }}>
-        {item.link && (
-          <Link to={item.link.to}>
-            <Tag color="blue">{item.link.label}</Tag>
+        {item.linkTo && label.link && (
+          <Link to={item.linkTo}>
+            <Tag color="blue">{t(`pages.decisions.${label.link}`)}</Tag>
           </Link>
         )}
         <Input.TextArea
-          placeholder="Quyết định của team (điền trong buổi họp — lưu trên máy này, không gửi đi đâu)"
+          placeholder={t('pages.decisions.placeholder')}
           rows={2}
           value={note}
           onChange={(e) => {
@@ -104,12 +77,12 @@ function DecisionCard({ item }: { item: DecisionItem }) {
 }
 
 export function DecisionsPage() {
+  const { t } = useTranslation('claude');
   return (
     <>
-      <Typography.Title level={3}>Quyết định cần chốt</Typography.Title>
+      <Typography.Title level={3}>{t('pages.decisions.title')}</Typography.Title>
       <Typography.Paragraph type="secondary">
-        8 điểm NEEDS-TEAM-DECISION từ đợt đánh giá layout. Ô ghi chú lưu trong trình duyệt của máy này (localStorage)
-        — không gửi lên đâu, chỉ để dùng trong buổi họp.
+        {t('pages.decisions.intro')}
       </Typography.Paragraph>
       {DECISIONS.map((item) => (
         <DecisionCard key={item.id} item={item} />

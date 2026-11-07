@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useBlocker } from 'react-router-dom';
 import { Modal } from 'antd';
+import { useTranslation } from 'react-i18next';
 
 // Mirrors the real repo's useUnsavedChangesGuard: blocks navigation while
 // `isDirty` is true, behind a stay/leave confirm, with a beforeunload
@@ -11,6 +12,7 @@ import { Modal } from 'antd';
 // hook: the real repo's guard has exactly the same shape (Navigation API /
 // popstate, not a generic "something changed" watcher).
 export function useUnsavedChangesGuard(isDirty: boolean, onEvent?: (message: string) => void) {
+  const { t } = useTranslation('claude');
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
@@ -23,10 +25,10 @@ export function useUnsavedChangesGuard(isDirty: boolean, onEvent?: (message: str
     if (blocker.state !== 'blocked') return;
     onEventRef.current?.('Guard CHẶN điều hướng — hiện modal xác nhận.');
     Modal.confirm({
-      title: 'Rời khỏi trang?',
-      content: 'Có thay đổi chưa lưu. Bạn có chắc muốn rời khỏi?',
-      okText: 'Rời khỏi',
-      cancelText: 'Ở lại',
+      title: t('common:leavePage'),
+      content: t('common:unsavedConfirm'),
+      okText: t('common:leave'),
+      cancelText: t('common:stay'),
       onOk: () => {
         onEventRef.current?.('Người dùng chọn "Rời khỏi" — điều hướng tiếp tục.');
         blocker.proceed?.();
@@ -36,7 +38,7 @@ export function useUnsavedChangesGuard(isDirty: boolean, onEvent?: (message: str
         blocker.reset?.();
       }
     });
-  }, [blocker]);
+  }, [blocker, t]);
 
   // Tab close / refresh fallback — cannot be demoed by a button click in
   // this experiment, but wired so the behavior matches the real guard.

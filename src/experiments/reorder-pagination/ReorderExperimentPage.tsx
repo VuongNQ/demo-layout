@@ -5,6 +5,7 @@ import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-ki
 import { DragHandle, SortableRow } from '@/components/SortableRow';
 import { useOfferTypeListQuery, useReorderOfferTypesMutation } from '@/features/offer-type/offer-type.queries.hook';
 import type { OfferType } from '@/data/demo-data';
+import { useTranslation } from 'react-i18next';
 
 type Mode = 'paginated' | 'sort-mode' | 'position-input';
 
@@ -16,6 +17,7 @@ const ALL_SIZE = 1000;
 // /offer-types screen — this page only changes how the list is fetched
 // and how dnd-kit is wired, to make the three options comparable.
 function PaginatedMode() {
+  const { t } = useTranslation('claude');
   const [page, setPage] = useState(1);
   const { data, isLoading } = useOfferTypeListQuery({ page, pageSize: PAGE_SIZE });
   const reorderMutation = useReorderOfferTypesMutation();
@@ -37,7 +39,7 @@ function PaginatedMode() {
         type="warning"
         showIcon
         style={{ marginBottom: 16 }}
-        message='Thử: ở trang 1, kéo item xuống cuối danh sách rồi sang trang 2. Item sẽ KHÔNG di chuyển sang trang 2 — dnd-kit chỉ biết các item đang render trên trang hiện tại. Đây đúng là vấn đề django-admin-sortable và Atlassian JSDCLOUD-19359 đã nêu, không phải lỗi giả lập.'
+        message={t('pages.experiments.pageBoundary')}
       />
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
@@ -49,8 +51,8 @@ function PaginatedMode() {
             components={{ body: { row: SortableRow } }}
             columns={[
               { key: 'drag', width: 32, render: () => <DragHandle /> },
-              { title: 'Tên', dataIndex: 'name' },
-              { title: 'Thứ tự', dataIndex: 'priority', width: 80 }
+              { title: t('pages.experiments.name'), dataIndex: 'name' },
+              { title: t('pages.experiments.order'), dataIndex: 'priority', width: 80 }
             ]}
           />
         </SortableContext>
@@ -61,6 +63,7 @@ function PaginatedMode() {
 }
 
 function SortModeMode() {
+  const { t } = useTranslation('claude');
   const { data, isLoading } = useOfferTypeListQuery({ page: 1, pageSize: ALL_SIZE });
   const reorderMutation = useReorderOfferTypesMutation();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -84,7 +87,7 @@ function SortModeMode() {
         type="success"
         showIcon
         style={{ marginBottom: 16 }}
-        message="Toàn bộ danh sách (bỏ phân trang) được tải một lần. Kéo thả tự do từ đầu tới cuối, không bị chặn ở biên trang. Bấm 'Lưu thứ tự' để ghi lại — trước đó thay đổi chỉ ở local."
+        message={t('pages.experiments.allItems')}
       />
       <Space style={{ marginBottom: 16 }}>
         <Button
@@ -97,9 +100,9 @@ function SortModeMode() {
             setLocalOrder(null);
           }}
         >
-          Lưu thứ tự
+          {t('pages.experiments.saveOrder')}
         </Button>
-        {isDirty && <Typography.Text type="warning">Có thay đổi chưa lưu</Typography.Text>}
+        {isDirty && <Typography.Text type="warning">{t('pages.experiments.dirtyNotice')}</Typography.Text>}
       </Space>
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
@@ -112,8 +115,8 @@ function SortModeMode() {
             components={{ body: { row: SortableRow } }}
             columns={[
               { key: 'drag', width: 32, render: () => <DragHandle /> },
-              { title: 'Tên', dataIndex: 'name' },
-              { title: 'Thứ tự', dataIndex: 'priority', width: 80 }
+              { title: t('pages.experiments.name'), dataIndex: 'name' },
+              { title: t('pages.experiments.order'), dataIndex: 'priority', width: 80 }
             ]}
           />
         </SortableContext>
@@ -123,6 +126,7 @@ function SortModeMode() {
 }
 
 function PositionInputMode() {
+  const { t } = useTranslation('claude');
   const { data, isLoading } = useOfferTypeListQuery({ page: 1, pageSize: ALL_SIZE });
   const reorderMutation = useReorderOfferTypesMutation();
   const items = data?.items ?? [];
@@ -141,7 +145,7 @@ function PositionInputMode() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="Không cần kéo thả: nhập số thứ tự mong muốn và nhấn Enter. Hoạt động xuyên trang vì không có trang — nhưng kém trực quan hơn kéo thả, và không dùng được bàn phím-chỉ (accessible hơn) theo đúng nghĩa đó."
+        message={t('pages.experiments.keyboardMove')}
       />
       <Table<OfferType>
         rowKey="id"
@@ -150,9 +154,9 @@ function PositionInputMode() {
         pagination={false}
         scroll={{ y: 480 }}
         columns={[
-          { title: 'Tên', dataIndex: 'name' },
+          { title: t('pages.experiments.name'), dataIndex: 'name' },
           {
-            title: 'Thứ tự',
+            title: t('pages.experiments.order'),
             dataIndex: 'priority',
             width: 120,
             render: (priority: number, record) => (
@@ -173,23 +177,23 @@ function PositionInputMode() {
 }
 
 export function ReorderExperimentPage() {
+  const { t } = useTranslation('claude');
   const [mode, setMode] = useState<Mode>('paginated');
 
   return (
     <>
-      <Typography.Title level={4}>Thí nghiệm 2 — Kéo thả reorder trên danh sách có phân trang</Typography.Title>
+      <Typography.Title level={4}>{t('pages.experiments.reorderTitle')}</Typography.Title>
       <Typography.Paragraph>
-        Cùng một dữ liệu offer-type (120 item), ba cách lấy/sắp xếp khác nhau. NEEDS-TEAM-DECISION #8: chọn một chế
-        độ áp cho mọi màn có reorder (hiện offer-type và background-locks đang khác nhau).
+        {t('pages.experiments.reorderIntro')}
       </Typography.Paragraph>
       <Segmented
         style={{ marginBottom: 16 }}
         value={mode}
         onChange={(value) => setMode(value as Mode)}
         options={[
-          { label: 'Phân trang (hiện tại)', value: 'paginated' },
-          { label: 'Chế độ sắp xếp riêng', value: 'sort-mode' },
-          { label: 'Nhập vị trí trực tiếp', value: 'position-input' }
+          { label: t('pages.experiments.paginated'), value: 'paginated' },
+          { label: t('pages.experiments.sortMode'), value: 'sort-mode' },
+          { label: t('pages.experiments.positionMode'), value: 'position-input' }
         ]}
       />
       {mode === 'paginated' && <PaginatedMode />}

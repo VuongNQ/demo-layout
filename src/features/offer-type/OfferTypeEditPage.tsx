@@ -1,4 +1,6 @@
+import { claudePath } from '@/claude/routes/route-meta';
 import { Form, Button, Skeleton, Typography } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { OfferTypeForm, type OfferTypeFormValues } from './OfferTypeForm';
 import { useOfferTypeDetailQuery, useUpdateOfferTypeMutation } from './offer-type.queries.hook';
@@ -10,6 +12,7 @@ import styles from './OfferTypeEditPage.module.scss';
 // Drawer in substrate A — only the shell around it differs, which is the
 // point: the form itself must not know which substrate it is in.
 export function OfferTypeEditPage() {
+  const { t } = useTranslation('claude');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: offerType, isLoading } = useOfferTypeDetailQuery(id);
@@ -20,7 +23,7 @@ export function OfferTypeEditPage() {
     if (!id) return;
     const values = await form.validateFields();
     await updateMutation.mutateAsync({ id, patch: values });
-    navigate('/offer-types');
+    navigate(claudePath('offerTypes'));
   }
 
   if (isLoading || !offerType) {
@@ -29,14 +32,14 @@ export function OfferTypeEditPage() {
 
   return (
     <div className={styles.page}>
-      <Typography.Title level={4}>Cài đặt: {offerType.name}</Typography.Title>
+      <Typography.Title level={4}>{t('offer.settings', { name: offerType.name })}</Typography.Title>
       <div className={styles.body}>
         <OfferTypeForm form={form} initialValues={offerType} />
       </div>
       <div className={styles.footer}>
-        <Button onClick={() => navigate('/offer-types')}>Hủy</Button>
+        <Button onClick={() => navigate(claudePath('offerTypes'))}>{t('offer.cancel')}</Button>
         <Button type="primary" loading={updateMutation.isPending} onClick={() => void handleSave()}>
-          Lưu
+          {t('offer.save')}
         </Button>
       </div>
     </div>

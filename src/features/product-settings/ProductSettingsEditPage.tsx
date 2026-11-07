@@ -1,3 +1,5 @@
+import { claudePath } from '@/claude/routes/route-meta';
+import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import { Form, Skeleton, Typography, message, Button, Space } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -14,6 +16,7 @@ import styles from './ProductSettingsEditPage.module.scss';
 // shape, with the alternative top-bar pattern, so the team compares both
 // rather than only ever seeing one.
 export function ProductSettingsEditPage() {
+  const { t } = useTranslation('claude');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: item, isLoading } = useProductSettingsDetailQuery(id);
@@ -26,7 +29,7 @@ export function ProductSettingsEditPage() {
     const values = await form.validateFields();
     await updateMutation.mutateAsync({ id, patch: values });
     setIsDirty(false);
-    message.success('Đã lưu.');
+    message.success(t('productSettings.saveSuccess'));
   }
 
   function handleDiscard() {
@@ -43,18 +46,18 @@ export function ProductSettingsEditPage() {
       <ContextualSaveBar
         visible={isDirty}
         saving={updateMutation.isPending}
-        label={`Có thay đổi chưa lưu — ${item.name}`}
+        label={t('productSettings.dirty', { name: item.name })}
         onSave={() => void handleSave()}
         onDiscard={handleDiscard}
       />
       <ContextualSaveBarSpacer visible={isDirty} />
       <div className={styles.page}>
         <Space align="center" style={{ marginBottom: 8 }}>
-          <Button type="link" disabled={isDirty} onClick={() => navigate('/product-settings')}>
-            ← Quay lại danh sách
+          <Button type="link" disabled={isDirty} onClick={() => navigate(claudePath('productSettings'))}>
+            {t('productSettings.back')}
           </Button>
         </Space>
-        <Typography.Title level={4}>Cài đặt sản phẩm: {item.name}</Typography.Title>
+        <Typography.Title level={4}>{t('productSettings.title', { name: item.name })}</Typography.Title>
         <ProductSettingsForm form={form} initialValues={item} onValuesChange={() => setIsDirty(true)} />
       </div>
     </>

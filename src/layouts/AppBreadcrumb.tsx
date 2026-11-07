@@ -1,6 +1,8 @@
 import { Breadcrumb, Alert } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 import { findBreadcrumbTrail } from '@/menu/menu-tree';
+import { menuTranslationKeys } from '@/claude/navigation/menu-meta';
 
 // Derived from the menu tree, not from the URL — matching the real repo's
 // src/helpers/menus.helper.ts. A route with no menu entry therefore has no
@@ -11,6 +13,7 @@ import { findBreadcrumbTrail } from '@/menu/menu-tree';
 // link has no breadcrumb because it has no menu node.
 export function AppBreadcrumb() {
   const location = useLocation();
+  const { t } = useTranslation('navigation');
   const trail = findBreadcrumbTrail(location.pathname);
 
   if (trail.length === 0) {
@@ -18,7 +21,7 @@ export function AppBreadcrumb() {
       <Alert
         type="warning"
         showIcon
-        message="Route này không có breadcrumb vì không có menu entry (giống ca background-main-lock, trước đây là theme-lock, trong repo thật)."
+        message={t('missingBreadcrumb')}
         style={{ marginBottom: 16 }}
       />
     );
@@ -27,7 +30,7 @@ export function AppBreadcrumb() {
   return (
     <Breadcrumb
       style={{ marginBottom: 16 }}
-      items={[{ title: 'Trang chủ' }, ...trail.map((node) => ({ title: node.label }))]}
+      items={[{ title: t('home') }, ...trail.map((node) => ({ title: t(menuTranslationKeys[node.key] ?? node.key, { defaultValue: node.label }) }))]}
     />
   );
 }

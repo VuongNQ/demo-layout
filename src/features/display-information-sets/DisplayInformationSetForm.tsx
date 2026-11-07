@@ -1,5 +1,6 @@
 import { Form, Input, Select, Switch, Row, Col, Avatar, Button, Space, type FormInstance } from 'antd';
 import { PictureOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { LABELS, REQUIRED_INFO_SETS, FEES, type DisplayInformationSet } from './demo-display-information-sets-data';
 
 export type DisplayInformationSetFormValues = Omit<DisplayInformationSet, 'id'>;
@@ -11,6 +12,7 @@ type Props = {
 };
 
 export function DisplayInformationSetForm({ form, initialValues, onValuesChange }: Props) {
+  const { t } = useTranslation('claude');
   return (
     <Form<DisplayInformationSetFormValues>
       form={form}
@@ -19,60 +21,60 @@ export function DisplayInformationSetForm({ form, initialValues, onValuesChange 
       onValuesChange={onValuesChange}
       scrollToFirstError={{ behavior: 'smooth', block: 'center' }}
     >
-      <Form.Item label="Ảnh hiển thị">
+      <Form.Item label={t('pages.displaySet.imageLabel')}>
         <Space>
           <Avatar shape="square" size={64} style={{ backgroundColor: initialValues?.previewColor ?? '#d9d9d9' }} icon={<PictureOutlined />} />
-          <Button disabled>Chọn ảnh (demo, không upload thật)</Button>
+          <Button disabled>{t('pages.displaySet.chooseImage')}</Button>
         </Space>
       </Form.Item>
       <Row gutter={16}>
         <Col xs={24} sm={8}>
-          <Form.Item name="code" label="Mã" rules={[{ required: true, message: 'Bắt buộc' }]}>
+          <Form.Item name="code" label={t('pages.displaySet.code')} rules={[{ required: true, message: t('validation:required') }]}>
             <Input />
           </Form.Item>
         </Col>
         <Col xs={24} sm={10}>
-          <Form.Item name="name" label="Tên bộ hiển thị" rules={[{ required: true }]}>
+          <Form.Item name="name" label={t('pages.displaySet.name')} rules={[{ required: true, message: t('validation:required') }]}>
             <Input />
           </Form.Item>
         </Col>
         <Col xs={24} sm={6}>
-          <Form.Item name="productLineCode" label="Dòng sản phẩm" rules={[{ required: true }]}>
-            <Select options={[{ value: 'CL', label: 'Vay tiền mặt (CL)' }, { value: 'CD', label: 'Thẻ tín dụng (CD)' }]} />
+          <Form.Item name="productLineCode" label={t('pages.displaySet.productLine')} rules={[{ required: true, message: t('validation:required') }]}>
+            <Select options={[{ value: 'CL', label: t('pages.displaySet.cashLoan') }, { value: 'CD', label: t('pages.displaySet.creditCard') }]} />
           </Form.Item>
         </Col>
       </Row>
       <Row gutter={16}>
         <Col xs={24} sm={8}>
-          <Form.Item name="labelIds" label="Nhãn sản phẩm" rules={[{ required: true }]}>
+          <Form.Item name="labelIds" label={t('pages.displaySet.labels')} rules={[{ required: true, message: t('validation:required') }]}>
             <Select mode="multiple" options={LABELS.map((v) => ({ value: v, label: v }))} />
           </Form.Item>
         </Col>
         <Col xs={24} sm={8}>
-          <Form.Item name="requiredInformationSetId" label="Bộ thông tin bắt buộc" rules={[{ required: true }]}>
+          <Form.Item name="requiredInformationSetId" label={t('pages.displaySet.requiredSet')} rules={[{ required: true, message: t('validation:required') }]}>
             <Select options={REQUIRED_INFO_SETS.map((v) => ({ value: v, label: v }))} />
           </Form.Item>
         </Col>
         <Col xs={24} sm={8}>
-          <Form.Item name="feeIds" label="Biểu phí áp dụng" rules={[{ required: true }]}>
+          <Form.Item name="feeIds" label={t('pages.displaySet.fees')} rules={[{ required: true, message: t('validation:required') }]}>
             <Select mode="multiple" options={FEES.map((v) => ({ value: v, label: v }))} />
           </Form.Item>
         </Col>
       </Row>
       <Row gutter={16}>
         <Col xs={24} sm={8}>
-          <Form.Item name="showInApp" label="Hiện ở App" valuePropName="checked">
+          <Form.Item name="showInApp" label={t('pages.displaySet.app')} valuePropName="checked">
             <Switch />
           </Form.Item>
         </Col>
         <Col xs={24} sm={8}>
-          <Form.Item name="showInWeb" label="Hiện ở Web" valuePropName="checked">
+          <Form.Item name="showInWeb" label={t('pages.displaySet.web')} valuePropName="checked">
             <Switch />
           </Form.Item>
         </Col>
         <Col xs={24} sm={8}>
-          <Form.Item name="status" label="Trạng thái" rules={[{ required: true }]}>
-            <Select options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} />
+          <Form.Item name="status" label={t('pages.displaySet.status')} rules={[{ required: true, message: t('validation:required') }]}>
+            <Select options={[{ value: 'active', label: t('pages.displaySet.active') }, { value: 'inactive', label: t('pages.displaySet.inactive') }]} />
           </Form.Item>
         </Col>
       </Row>
