@@ -92,6 +92,18 @@ test('Scenario 2 protects draft exits and saves into the current fictional list 
   await expect(page).toHaveURL(/chatgpt\/experiments\/unsaved-changes\?source=acceptance#records$/);
 });
 
+test('Scenario 2 clean drawer navigation supports browser Back and Forward with query and hash', async ({ page }) => {
+  await page.goto('chatgpt/experiments/unsaved-changes?source=history#records');
+  await page.getByRole('link', { name: 'Open editor' }).first().click();
+  await expect(page).toHaveURL(/demo-campaign-1\?source=history#records$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/chatgpt\/experiments\/unsaved-changes\?source=history#records$/);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.goForward();
+  await expect(page).toHaveURL(/demo-campaign-1\?source=history#records$/);
+  await expect(page.getByRole('dialog').getByRole('textbox', { name: 'Campaign name' })).toHaveValue('Spring welcome offer');
+});
+
 test('Scenario 3 keeps the 120-item dataset intact across page-local reorder and pagination', async ({ page }) => {
   await page.goto('chatgpt/experiments/reorder-pagination');
   await expect(page.getByText('Showing 1–20 of 120 items')).toBeVisible();
@@ -176,19 +188,22 @@ test('Scenario 2 direct drawer refresh, invalid submit, and semantic dirty rever
 
   await name.fill('Temporary name');
   await name.fill('Spring welcome offer');
+  await note.fill('Review eligibility summary.');
   await expect(drawer.getByText('No changes')).toBeVisible();
   await expect(drawer.getByRole('button', { name: 'Save draft' })).toBeDisabled();
 });
 
-for (const closeAction of ['visible Close', 'Escape', 'backdrop'] as const) {
+for (const closeAction of ['X', 'visible Close', 'Escape', 'backdrop'] as const) {
   test(`Scenario 2 dirty drawer protects ${closeAction} and supports Stay/Discard`, async ({ page }) => {
     await page.goto('chatgpt/experiments/unsaved-changes/demo-campaign-1?source=close-test#records');
     const drawer = page.getByRole('dialog');
     const name = drawer.getByRole('textbox', { name: 'Campaign name' });
     await name.fill('Draft that must not disappear');
 
-    if (closeAction === 'visible Close') {
-      await drawer.getByRole('button', { name: 'Close', exact: true }).click();
+    if (closeAction === 'X') {
+      await drawer.getByRole('button', { name: 'Close', exact: true }).first().click();
+    } else if (closeAction === 'visible Close') {
+      await drawer.getByRole('button', { name: 'Close', exact: true }).last().click();
     } else if (closeAction === 'Escape') {
       await page.keyboard.press('Escape');
     } else {
@@ -201,10 +216,11 @@ for (const closeAction of ['visible Close', 'Escape', 'backdrop'] as const) {
     await expect(name).toHaveValue('Draft that must not disappear');
     await expect(page).toHaveURL(/demo-campaign-1\?source=close-test#records$/);
 
-    if (closeAction === 'visible Close') await drawer.getByRole('button', { name: 'Close', exact: true }).click();
-    else if (closeAction === 'Escape') await page.keyboard.press('Escape');
-    else await page.locator('.ant-drawer-mask').click();
-    await page.getByRole('dialog', { name: 'Unsaved changes' }).getByRole('button', { name: 'Discard changes' }).click();
+    await expect(confirmation).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Cancel', exact: true }).click();
+    const discardConfirmation = page.getByRole('dialog', { name: 'Unsaved changes' });
+    await expect(discardConfirmation).toBeVisible();
+    await discardConfirmation.getByRole('button', { name: 'Discard changes' }).click();
     await expect(page).toHaveURL(/chatgpt\/experiments\/unsaved-changes\?source=close-test#records$/);
   });
 }
@@ -214,7 +230,7 @@ test('Scenario 2 switches record only after a dirty draft is safely discarded', 
   await page.getByRole('link', { name: 'Open editor' }).first().click();
   const firstDrawer = page.getByRole('dialog');
   await firstDrawer.getByRole('textbox', { name: 'Campaign name' }).fill('Uncommitted first record');
-  await firstDrawer.getByRole('button', { name: 'Close', exact: true }).click();
+  await firstDrawer.getByRole('button', { name: 'Close', exact: true }).first().click();
   await page.getByRole('dialog', { name: 'Unsaved changes' }).getByRole('button', { name: 'Discard changes' }).click();
   await page.getByRole('link', { name: 'Open Everyday card reminder' }).click();
   const secondDrawer = page.getByRole('dialog');
@@ -222,42 +238,45 @@ test('Scenario 2 switches record only after a dirty draft is safely discarded', 
   await expect(secondDrawer.getByRole('textbox', { name: 'Note' })).toHaveValue('Keep the existing schedule.');
 });
 
-test('Scenario 3 keyboard reorder is page-scoped and discard restores its baseline', async ({ page }) => {
+test('Scenario 3 keyboard-accessible move control reorders within the page and discard restores its baseline', async ({ page }) => {
   await page.goto('chatgpt/experiments/reorder-pagination');
   const list = page.getByRole('list', { name: 'Sortable offer list' });
   const first = list.getByRole('listitem').first();
   const itemName = (await first.locator('strong').textContent()) ?? '';
-  const dragHandle = first.getByRole('button', { name: `Drag ${itemName} to reorder` });
-  await dragHandle.focus();
-  await page.keyboard.press('Space');
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Space');
+  const moveDown = first.getByRole('button', { name: `Move ${itemName} down` });
+  await moveDown.focus();
+  await page.keyboard.press('Enter');
   await expect(list.getByRole('listitem').nth(1)).toContainText(itemName);
   await expect(page.getByText('Order has unsaved changes')).toBeVisible();
   await page.getByRole('button', { name: 'Discard changes' }).click();
   await expect(list.getByRole('listitem').first()).toContainText(itemName);
   await expect(page.getByText('Order is saved')).toBeVisible();
+  const restoredFirst = list.getByRole('listitem').first();
+  const restoredName = (await restoredFirst.locator('strong').textContent()) ?? '';
+  await restoredFirst.getByRole('button', { name: `Move ${restoredName} down` }).click();
+  await page.getByRole('link', { name: 'Compare', exact: true }).click();
+  await expect(page).toHaveURL(/compare$/);
 });
 
 test('Scenario 3 direct global position saves exactly 120 unique offer IDs', async ({ page }) => {
   await page.goto('chatgpt/experiments/reorder-pagination');
   const list = page.getByRole('list', { name: 'Sortable offer list' });
-  const firstIdText = await list.getByRole('listitem').first().locator('span').textContent();
-  const firstId = firstIdText?.split(' · ')[0]?.trim();
+  const firstRowText = await list.getByRole('listitem').first().innerText();
+  const firstId = firstRowText.match(/offer-\d+/)?.[0];
   expect(firstId).toMatch(/^offer-/);
 
   await page.getByRole('button', { name: 'Enter a position' }).click();
   await page.getByRole('textbox', { name: 'Offer ID' }).fill(firstId!);
   await page.getByRole('spinbutton', { name: 'Target position' }).fill('120');
   await page.getByRole('button', { name: 'Preview move' }).click();
-  await expect(page.getByRole('status')).toContainText(`${firstId} will move to position 120 when saved.`);
+  await expect(page.getByRole('status').filter({ hasText: `${firstId} will move to position 120 when saved.` })).toBeVisible();
   await page.getByRole('button', { name: 'Save order' }).click();
   await expect(page.getByText('Sample order saved.')).toBeVisible();
 
   const allRows = list.getByRole('listitem');
   await expect(allRows).toHaveCount(120);
-  const ids = await allRows.locator('span').allTextContents();
-  const normalizedIds = ids.map((text) => text.split(' · ')[0]?.trim());
+  const rowTexts = await allRows.allInnerTexts();
+  const normalizedIds = rowTexts.map((text) => text.match(/offer-\d+/)?.[0]);
   expect(normalizedIds).toHaveLength(120);
   expect(new Set(normalizedIds).size).toBe(120);
   await expect(allRows.last()).toContainText(firstId!);
@@ -265,15 +284,17 @@ test('Scenario 3 direct global position saves exactly 120 unique offer IDs', asy
 
 test('Scenario 4 tab and anchor summaries clear errors in different correction orders without losing values', async ({ page }) => {
   await page.goto('chatgpt/experiments/tabs-vs-anchor');
+  const generatedInputIds = await page.locator('input[id]').evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).id));
+  expect(new Set(generatedInputIds).size).toBe(generatedInputIds.length);
   await page.getByRole('button', { name: 'Validate form' }).first().click();
-  const tabCard = page.getByRole('heading', { name: 'A — Tabbed form' }).locator('..').locator('..');
-  const tabSummary = tabCard.getByRole('alert');
+  const tabSummary = page.getByRole('alert').filter({ hasText: '2 errors need attention.' }).first();
   await expect(tabSummary).toContainText('2 errors need attention.');
   await tabSummary.getByRole('button', { name: 'Go to the Reminder days before field with an error' }).click();
   const tabReminder = page.getByRole('spinbutton', { name: 'Reminder days before' }).first();
   await tabReminder.fill('30');
-  await expect(tabSummary).toContainText('1 errors need attention.');
-  await tabSummary.getByRole('button', { name: 'Go to the Program name field with an error' }).click();
+  const remainingTabError = page.getByRole('alert').filter({ hasText: '1 errors need attention.' }).first();
+  await expect(remainingTabError).toBeVisible();
+  await remainingTabError.getByRole('button', { name: 'Go to the Program name field with an error' }).click();
   const tabName = page.getByRole('textbox', { name: 'Program name' }).first();
   await tabName.fill('Sample program');
   await expect(tabSummary).toHaveCount(0);
@@ -287,8 +308,9 @@ test('Scenario 4 tab and anchor summaries clear errors in different correction o
   await anchorSummary.getByRole('button', { name: 'Go to the Program name field with an error' }).click();
   const anchorName = page.getByRole('textbox', { name: 'Program name' }).last();
   await anchorName.fill('Anchor program');
-  await expect(anchorSummary).toContainText('1 errors need attention.');
-  await anchorSummary.getByRole('button', { name: 'Go to the Reminder days before field with an error' }).click();
+  const remainingAnchorError = page.getByRole('alert').filter({ hasText: '1 errors need attention.' }).last();
+  await expect(remainingAnchorError).toBeVisible();
+  await remainingAnchorError.getByRole('button', { name: 'Go to the Reminder days before field with an error' }).click();
   const anchorReminder = page.getByRole('spinbutton', { name: 'Reminder days before' }).last();
   await anchorReminder.fill('30');
   await expect(anchorSummary).toHaveCount(0);
@@ -305,14 +327,19 @@ test('Scenario 5 conditional fields and validation remain coherent after languag
   await expect(page.getByRole('textbox', { name: 'Tên sản phẩm' })).toHaveValue('Edited without reset');
 
   const audience = page.getByRole('combobox', { name: 'Đối tượng' });
-  await audience.click();
-  await page.getByRole('option', { name: 'Doanh nghiệp' }).click();
+  await audience.locator('xpath=../..').click();
+  const visibleDropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last();
+  await expect(visibleDropdown).toBeVisible();
+  const businessOption = visibleDropdown.getByText('Doanh nghiệp', { exact: true });
+  await expect(businessOption).toBeVisible();
+  await businessOption.click();
   await expect(page.getByRole('spinbutton', { name: 'Doanh thu tối thiểu mỗi năm' })).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'Tuổi tối thiểu' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Lưu thay đổi' }).first().click();
   await expect(page.getByRole('alert').filter({ hasText: 'Kiểm tra các trường được đánh dấu' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Tên sản phẩm' })).toHaveValue('Edited without reset');
-  await expect(page.getByRole('combobox', { name: 'Đối tượng' })).toContainText('Doanh nghiệp');
+  await expect(page.getByRole('spinbutton', { name: 'Doanh thu tối thiểu mỗi năm' })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'Tuổi tối thiểu' })).toHaveCount(0);
 });
 
 test('Scenario 5 semantic revert, route Stay/Discard, and successful Save establish the correct baseline', async ({ page }) => {

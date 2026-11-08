@@ -10,16 +10,23 @@ const claudeMeta = await read('src/claude/routes/route-meta.ts');
 const claudeRoutes = await read('src/claude/routes/route-config.tsx');
 const legacyRoutes = await read('src/routes/legacy-redirects.tsx');
 
-// Browser acceptance tooling was explicitly authorized for Phase 8H. Keep
-// package changes constrained to that toolchain and its dedicated scripts.
+// Browser acceptance tooling was explicitly authorized for Phase 8H. It is
+// already present at HEAD in some checkouts, so normalize the same approved
+// entries on both sides while still rejecting every unrelated package/script.
 const packageJson = JSON.parse(await read('package.json'));
 const baselinePackageJson = JSON.parse(execFileSync('git', ['show', 'HEAD:package.json'], { encoding: 'utf8' }));
 assert.deepEqual(packageJson.dependencies, baselinePackageJson.dependencies, 'application dependencies remain unchanged');
-const currentDevDependencies = { ...packageJson.devDependencies };
-delete currentDevDependencies['@playwright/test'];
-assert.deepEqual(currentDevDependencies, baselinePackageJson.devDependencies, 'only the authorized Playwright test dependency is added');
 assert.equal(packageJson.devDependencies['@playwright/test'], '^1.60.0');
+const normalizedPackage = (source) => {
+  const result = structuredClone(source);
+  delete result.devDependencies['@playwright/test'];
+  delete result.scripts['test:e2e'];
+  delete result.scripts['verify:scenarios2-5'];
+  return result;
+};
+assert.deepEqual(normalizedPackage(packageJson), normalizedPackage(baselinePackageJson), 'only authorized Playwright dependency/script entries may differ from HEAD');
 const currentScripts = { ...packageJson.scripts };
+const baselineScripts = { ...baselinePackageJson.scripts };
 const allowedScripts = {
   'test:e2e': 'playwright test',
   'verify:scenarios2-5': 'node scripts/verify-chatgpt-scenarios-2-5.mjs'
@@ -27,8 +34,9 @@ const allowedScripts = {
 for (const [name, command] of Object.entries(allowedScripts)) {
   assert.equal(currentScripts[name], command, `${name} uses its approved command`);
   delete currentScripts[name];
+  delete baselineScripts[name];
 }
-assert.deepEqual(currentScripts, baselinePackageJson.scripts, 'only dedicated browser and scenario verification scripts are added');
+assert.deepEqual(currentScripts, baselineScripts, 'no scripts outside the dedicated browser and scenario verification scripts may differ from HEAD');
 
 const packageLock = JSON.parse(await read('package-lock.json'));
 const baselinePackageLock = JSON.parse(execFileSync('git', ['show', 'HEAD:package-lock.json'], { encoding: 'utf8' }));
@@ -36,15 +44,24 @@ assert.equal(packageLock.lockfileVersion, baselinePackageLock.lockfileVersion);
 const currentLockRoot = { ...packageLock.packages[''] };
 currentLockRoot.devDependencies = { ...currentLockRoot.devDependencies };
 delete currentLockRoot.devDependencies['@playwright/test'];
-assert.deepEqual(currentLockRoot, baselinePackageLock.packages[''], 'lockfile root changes only for Playwright');
+const baselineLockRoot = { ...baselinePackageLock.packages[''] };
+baselineLockRoot.devDependencies = { ...baselineLockRoot.devDependencies };
+delete baselineLockRoot.devDependencies['@playwright/test'];
+assert.deepEqual(currentLockRoot, baselineLockRoot, 'lockfile root changes only for the authorized Playwright dependency');
 const currentLockedPackages = { ...packageLock.packages };
 currentLockedPackages[''] = { ...currentLockedPackages[''], devDependencies: { ...currentLockedPackages[''].devDependencies } };
 delete currentLockedPackages[''].devDependencies['@playwright/test'];
+const baselineLockedPackages = { ...baselinePackageLock.packages };
+baselineLockedPackages[''] = { ...baselineLockedPackages[''], devDependencies: { ...baselineLockedPackages[''].devDependencies } };
+delete baselineLockedPackages[''].devDependencies['@playwright/test'];
 for (const name of [
   'node_modules/@playwright/test', 'node_modules/playwright', 'node_modules/playwright-core',
   'node_modules/playwright/node_modules/fsevents'
-]) delete currentLockedPackages[name];
-assert.deepEqual(currentLockedPackages, baselinePackageLock.packages, 'lockfile contains only the authorized Playwright dependency graph');
+]) {
+  delete currentLockedPackages[name];
+  delete baselineLockedPackages[name];
+}
+assert.deepEqual(currentLockedPackages, baselineLockedPackages, 'lockfile contains no changes outside the authorized Playwright dependency graph');
 
 for (const route of ['productLabels', 'productLabelDetail', 'promotionTypes', 'promotionTypeCreate', 'promotionTypeDetail', 'promotions', 'promotionCreate', 'promotionEdit']) {
   assert.match(chatgptMeta, new RegExp(`${route}: \\{ id: '${route}'`), `ChatGPT owns ${route}`);
