@@ -5,6 +5,7 @@ import { downloadMatrix, loadRecord, recordsForMatrix, saveRecord, type Comparis
 import { scenarioById, scenarios, type DecisionStatus, type Destination, type Scenario } from './scenarios';
 import styles from './CompareWorkspace.module.scss';
 import { PlatformLinks } from '@/routes/PlatformLinks';
+import { chatgptPath } from '@/chatgpt/routes/route-meta';
 
 const statusKeys: Record<DecisionStatus, string> = {
   open: 'open', testing: 'testing', recommended: 'recommended', approved: 'approved', rejected: 'rejected'
@@ -13,16 +14,36 @@ const statusKeys: Record<DecisionStatus, string> = {
 type ActiveRecord = { scenarioId: string; record: ComparisonRecord };
 const ActiveRecordContext = createContext<MutableRefObject<ActiveRecord | null> | null>(null);
 
-function DestinationCard({ platform, destination, currentUrl }: { platform: string; destination: Destination; currentUrl?: string }) {
+type PilotLink = { path: string; label: string; help?: string };
+
+function DestinationCard({ platform, destination, currentUrl, pilotLinks }: { platform: string; destination: Destination; currentUrl?: string; pilotLinks?: PilotLink[] }) {
   const { t } = useTranslation(['common', 'compare']);
   const translatedPlatform = platform === 'Claude' ? t('common:claude') : t('common:chatgpt');
   return (
     <section className={styles.destination} aria-label={t('destinationLabel', { platform: translatedPlatform })}>
       <h3>{translatedPlatform}</h3>
-      <p>{destination.availability === 'available' ? <Link to={destination.url}>{t('openScreen', { platform: translatedPlatform })}</Link> : <code>{destination.url}</code>} <span className={styles.availability}>{t(`common:${destination.availability}`)}</span></p>
+      {pilotLinks ? (
+        <>
+          <p><span className={styles.availability}>{t(`common:${destination.availability}`)}</span></p>
+          <ul>
+            {pilotLinks.map((pilot) => <li key={pilot.label}><Link to={pilot.path}>{pilot.label}</Link>{pilot.help && <p>{pilot.help}</p>}</li>)}
+          </ul>
+        </>
+      ) : (
+        <p>{destination.availability === 'available' ? <Link to={destination.url}>{t('openScreen', { platform: translatedPlatform })}</Link> : <code>{destination.url}</code>} <span className={styles.availability}>{t(`common:${destination.availability}`)}</span></p>
+      )}
       {currentUrl ? <p>{t('legacyUrl')}: <Link to={currentUrl}>{currentUrl}</Link></p> : destination.availability !== 'available' ? <p>{t('noChatgptScreen')}</p> : null}
     </section>
   );
+}
+
+function scenarioPilotLinks(t: (key: string) => string): PilotLink[] {
+  return [
+    { path: chatgptPath('productLabels'), label: t('pilotLinks.productLabels') },
+    { path: chatgptPath('promotionTypes'), label: t('pilotLinks.promotionTypes') },
+    { path: chatgptPath('promotions'), label: t('pilotLinks.promotionOffer') },
+    { path: chatgptPath('promotions'), label: t('pilotLinks.promotionHistory'), help: t('pilotLinks.promotionHistoryHelp') }
+  ];
 }
 
 function MatrixButton({ currentScenario }: { currentScenario?: Scenario }) {
@@ -83,7 +104,9 @@ export function CompareIndex() {
             return <tr key={scenario.id}>
               <th scope="row"><Link to={`/compare/${scenario.id}`}>{t(`scenarioTitle.${scenario.id}`)}</Link><small>{t(`scenarioRecord.${scenario.id}`)}</small></th>
               <td><Link to={scenario.claude.url}>{t('openScreen', { platform: t('common:claude') })}</Link><small>{t('common:available')} · {t('legacyUrl')}</small></td>
-              <td><span className={styles.availability}>{t('common:unavailable')}</span><small>{scenario.chatgpt.url}</small></td>
+              <td>
+                {scenario.chatgpt.availability === 'available' ? <><Link to={scenario.chatgpt.url}>{t('openScreen', { platform: t('common:chatgpt') })}</Link><small>{t('common:available')}</small></> : <><span className={styles.availability}>{t('common:unavailable')}</span><small>{scenario.chatgpt.url}</small></>}
+              </td>
               <td>{t(statusKeys[record.status])}</td>
             </tr>;
           })}</tbody>
@@ -128,7 +151,7 @@ function ScenarioDetail({ scenario }: { scenario: Scenario }) {
       </section>
       <div className={styles.destinationGrid}>
         <DestinationCard platform="Claude" destination={scenario.claude} currentUrl={scenario.claudeCurrentUrl} />
-        <DestinationCard platform="ChatGPT" destination={scenario.chatgpt} />
+        <DestinationCard platform="ChatGPT" destination={scenario.chatgpt} pilotLinks={scenario.id === 'drawer-vs-full-page' ? scenarioPilotLinks(t) : undefined} />
       </div>
       <section className={styles.card}>
         <div className={styles.sectionHeading}><h2>{t('evaluation')}</h2><MatrixButton currentScenario={scenario} /></div>

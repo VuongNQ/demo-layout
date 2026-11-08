@@ -25,13 +25,13 @@ const common: Criterion[] = [
 
 export const scenarios: Scenario[] = [
   {
-    id: 'drawer-vs-full-page', title: 'Drawer vs full-page edit', record: 'Fictional offer offer-1',
-    task: 'Edit the fictional offer description, then return to the list.',
-    expectedOutcome: 'The change is saved once, the operator can find validation feedback, and the return destination is clear.',
-    steps: ['Open offer-1 from the list as a drawer.', 'Edit its description and inspect Save and Cancel.', 'Repeat through the full-page edit link with the same fictional record.', 'Reload each deep link and check the return path.'],
+    id: 'drawer-vs-full-page', title: 'Product Detail Presentation Patterns', record: 'Four fictional product detail pilots',
+    task: 'Compare the complementary Product Label, Promotion Type, Promotion Offer, and Promotion History presentation patterns.',
+    expectedOutcome: 'Operators can reach each pilot and evaluate context, input complexity, navigation, and recovery using the existing criteria.',
+    steps: ['Open Product Labels and inspect the read-only quick view.', 'Open Promotion Types and try the compact quick edit.', 'Open Promotions and inspect a complex offer in the full-page form.', 'Open View History from Promotions and inspect the log viewer modal.'],
     claude: { url: '/claude/offer-types/offer-1', availability: 'available' },
     claudeCurrentUrl: '/offer-types/offer-1',
-    chatgpt: { url: '/chatgpt/offer-types/offer-1', availability: 'unavailable' },
+    chatgpt: { url: '/chatgpt/product-labels', availability: 'available' },
     criteria: [...common, { id: 'validation', label: 'Validation recovery', check: 'Can the operator locate and fix a failing field in each substrate?' }, { id: 'deep-link', label: 'Deep link', check: 'Does direct loading provide a usable close or back destination?' }],
     openQuestions: ['Which task complexity requires a full page?', 'Should one record expose both edit substrates?']
   },

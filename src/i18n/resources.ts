@@ -31,7 +31,7 @@ const baseResources = {
       switcher: 'Chuyển nền tảng', primary: 'Điều hướng chính', breadcrumb: 'Đường dẫn',
       landing: 'Chọn nền tảng', workspace: 'Không gian làm việc', home: 'Trang chủ',
       products: 'Sản phẩm', offerManagement: 'Quản lý ưu đãi', offerTypes: 'Loại ưu đãi',
-      productSync: 'Đồng bộ sản phẩm', productSettings: 'Cài đặt sản phẩm', productLabels: 'Nhãn sản phẩm', productParameters: 'Tham số sản phẩm',
+      productSync: 'Đồng bộ sản phẩm', productSettings: 'Cài đặt sản phẩm', productParameters: 'Tham số sản phẩm',
       fees: 'Biểu phí', promotions: 'Khuyến mãi', promotionTypes: 'Loại khuyến mãi',
       requiredInformation: 'Thông tin bắt buộc', displayInformationSets: 'Bộ hiển thị', addOns: 'Sản phẩm kèm theo',
       popularLoans: 'Vay phổ biến', attractiveOffer: 'Ưu đãi nổi bật', exclusiveTouch: 'Gán theo loại hiển thị',
@@ -57,8 +57,8 @@ const baseResources = {
       ,forms: { required: 'Bắt buộc', feeCode: 'Mã phí', feeName: 'Tên phí', appliesTo: 'Áp dụng cho', feeType: 'Loại phí', unit: 'Đơn vị', value: 'Giá trị', effectiveDate: 'Ngày hiệu lực', addOnCode: 'Mã', addOnName: 'Tên sản phẩm', distribution: 'Phân phối', associatedPartner: 'Đối tác liên kết', feeVnd: 'Phí (VND)', promotionName: 'Tên khuyến mãi', promotionCode: 'Mã', offerType: 'Loại ưu đãi', startDate: 'Ngày bắt đầu', endDate: 'Ngày kết thúc', assignedProducts: 'Sản phẩm áp dụng', promotionTypeName: 'Tên loại khuyến mãi', code: 'Mã', status: 'Trạng thái', infoName: 'Tên thông tin', inputType: 'Kiểu nhập', supplyMethod: 'Cách cung cấp', previewImage: 'Ảnh xem trước', backgroundName: 'Tên', customerSegments: 'Phân khúc khách hàng', validity: 'Thời gian hiệu lực', fromDate: 'Từ ngày', toDate: 'Đến ngày' },
       pages: {
         sync: { matched: 'Khớp dữ liệu', mismatched: 'Lệch dữ liệu', pending: 'Đang chờ', run: 'Đồng bộ ngay', history: 'Lịch sử đồng bộ', product: 'Sản phẩm', status: 'Trạng thái', lastSync: 'Đồng bộ lần cuối', viewDiff: 'Xem khác biệt', close: 'Đóng', field: 'Trường', source: 'Nguồn', target: 'Đích', started: 'Bắt đầu', finished: 'Kết thúc', result: 'Kết quả', changes: 'Số thay đổi', operator: 'Người chạy', syncing: 'Đang đồng bộ', reconciling: 'Đang đối soát dữ liệu', processing: 'Đang xử lý…', complete: 'Hoàn tất', syncedCount: 'Đã đồng bộ {{count}} sản phẩm', prompt: 'Nhấn “Đồng bộ ngay” để bắt đầu.', success: 'Thành công', failed: 'Thất bại' },
-        promotion: { add: 'Thêm khuyến mãi', code: 'Mã', name: 'Tên khuyến mãi', offerType: 'Loại ưu đãi', period: 'Hiệu lực', status: 'Trạng thái', edit: 'Sửa', createTitle: 'Thêm khuyến mãi', title: 'Khuyến mãi: {{name}}', created: 'Đã tạo khuyến mãi.', saved: 'Đã lưu.', back: '← Quay lại danh sách', cancel: 'Hủy', create: 'Tạo mới', startDate: 'Ngày bắt đầu', endDate: 'Ngày kết thúc', assignedProducts: 'Sản phẩm áp dụng', draft: 'Bản nháp', active: 'Đang hoạt động', expired: 'Hết hạn' },
-        promotionType: { add: 'Thêm loại khuyến mãi', configure: 'Cài đặt: {{name}}', name: 'Tên loại khuyến mãi', code: 'Mã', status: 'Trạng thái', edit: 'Sửa', active: 'Đang hoạt động', inactive: 'Ngừng hoạt động', draft: 'Bản nháp', cancel: 'Hủy', save: 'Lưu' },
+        promotion: { listTitle: 'Khuyến mãi', add: 'Thêm khuyến mãi', code: 'Mã', name: 'Tên khuyến mãi', offerType: 'Loại ưu đãi', period: 'Hiệu lực', status: 'Trạng thái', edit: 'Sửa', editFor: 'Sửa khuyến mãi {{name}}', editById: 'Sửa khuyến mãi {{id}}', createTitle: 'Thêm khuyến mãi', title: 'Khuyến mãi: {{name}}', createIdentity: 'Mã bản ghi sẽ được tạo khi lưu.', recordId: 'Mã bản ghi: {{id}}', created: 'Đã tạo khuyến mãi.', saved: 'Đã lưu.', dirtyLabel: 'Thay đổi chưa lưu — {{name}}', back: '← Quay lại danh sách', cancel: 'Hủy', create: 'Tạo mới', startDate: 'Ngày bắt đầu', endDate: 'Ngày kết thúc', assignedProducts: 'Sản phẩm áp dụng', draft: 'Bản nháp', active: 'Đang hoạt động', expired: 'Hết hạn', sectionNavigation: 'Điều hướng các phần biểu mẫu', sectionDetails: 'Thông tin khuyến mãi', sectionSchedule: 'Thời gian và trạng thái', sectionProducts: 'Sản phẩm áp dụng', validationSummary: 'Có lỗi cần sửa trước khi lưu.', goToField: 'Đi đến trường {{field}} có lỗi', saving: 'Đang lưu…', saveFailed: 'Không thể lưu thay đổi. {{detail}} Dữ liệu đã nhập vẫn được giữ lại.', loadFailed: 'Không thể tải khuyến mãi.', retry: 'Thử lại', notFoundTitle: 'Không tìm thấy khuyến mãi', notFoundDescription: 'Không có khuyến mãi với mã “{{id}}”.', unsavedTitle: 'Có thay đổi chưa lưu', unsavedDescription: 'Bạn có muốn hủy thay đổi và rời khỏi trang này không?', discard: 'Hủy thay đổi', stay: 'Ở lại', saveInProgressTitle: 'Đang lưu khuyến mãi', saveInProgressDescription: 'Điều hướng đang tạm dừng cho đến khi thao tác lưu hoàn tất.', history: { view: 'Xem lịch sử', viewFor: 'Xem lịch sử khuyến mãi {{name}}', title: 'Lịch sử khuyến mãi: {{name}}', demoNotice: 'Đây là sự kiện minh họa bằng dữ liệu hư cấu, không phải nhật ký hệ thống.', eventList: 'Sự kiện mẫu', eventDetails: 'Chi tiết sự kiện', eventId: 'Mã sự kiện', promotionId: 'Mã khuyến mãi', action: 'Hành động', timestamp: 'Thời điểm', actor: 'Người thực hiện (hư cấu)', source: 'Nguồn', changes: 'Thay đổi', before: 'Trước', after: 'Sau', notApplicable: 'Không có', notProvided: 'Không được cung cấp', promotionNotFound: 'Không tìm thấy khuyến mãi hoặc lịch sử mẫu.', noEvents: 'Chưa có sự kiện mẫu.', eventNotFound: 'Không tìm thấy sự kiện này.', copyEvent: 'Sao chép chi tiết sự kiện', copySuccess: 'Đã sao chép chi tiết sự kiện.', copyFailure: 'Không thể truy cập clipboard. Hãy chọn và sao chép nội dung chi tiết đang hiển thị bên dưới.', copyPreview: 'Nội dung có thể sao chép', commentsTitle: 'Nhận xét ({{count}})', commentLifetime: 'Nhận xét chỉ lưu trong bộ nhớ khi danh sách này còn mở; tải lại hoặc rời trang sẽ xóa dữ liệu mẫu.', threadEmpty: 'Chưa có nhận xét. Nhận xét chỉ là ghi chú mẫu, không thay đổi sự kiện gốc.', commentLabel: 'Nhận xét', commentRequired: 'Nhập nội dung nhận xét không chỉ gồm khoảng trắng.', commentSubmit: 'Thêm nhận xét', commentSuccess: 'Đã thêm nhận xét mẫu.', commentAuthor: 'Người thao tác mẫu (hư cấu)', close: 'Đóng', draftConfirmationTitle: 'Nhận xét chưa gửi', discardDraftOnClose: 'Bạn có nhận xét chưa gửi. Ở lại để tiếp tục hoặc hủy bản nháp và đóng cửa sổ.', discardDraftOnSwitch: 'Bạn có nhận xét chưa gửi. Ở lại để tiếp tục hoặc hủy bản nháp và xem sự kiện khác.', keepDraft: 'Tiếp tục viết', discardDraft: 'Hủy bản nháp', actions: { created: 'Tạo khuyến mãi (mẫu)', productsAssigned: 'Gán sản phẩm (mẫu)' }, fields: { name: 'Tên khuyến mãi', code: 'Mã', offerType: 'Loại ưu đãi', status: 'Trạng thái', assignedProducts: 'Sản phẩm áp dụng' } } },
+        promotionType: { title: 'Loại khuyến mãi', add: 'Thêm loại khuyến mãi', create: 'Tạo loại khuyến mãi', configure: 'Chỉnh sửa: {{name}}', editById: 'Chỉnh sửa loại khuyến mãi {{id}}', edit: 'Sửa', editFor: 'Sửa loại khuyến mãi {{name}}', recordId: 'Mã bản ghi: {{id}}', name: 'Tên loại khuyến mãi', code: 'Mã', status: 'Trạng thái', active: 'Đang hoạt động', inactive: 'Ngừng hoạt động', draft: 'Bản nháp', cancel: 'Hủy', save: 'Lưu', saveChanges: 'Lưu thay đổi', saved: 'Đã lưu loại khuyến mãi.', validationFailed: 'Kiểm tra các trường được đánh dấu trước khi lưu.', saveFailed: 'Không thể lưu thay đổi. Dữ liệu đang nhập vẫn được giữ lại.', listLoadError: 'Không thể tải danh sách loại khuyến mãi.', loadFailed: 'Không thể tải loại khuyến mãi.', retry: 'Thử lại', notFoundTitle: 'Không tìm thấy loại khuyến mãi', notFoundDescription: 'Không có loại khuyến mãi với mã “{{id}}”.', returnToList: 'Quay lại danh sách', mechanismNote: 'Trong bản mẫu này, loại khuyến mãi chỉ dùng làm nhãn phân loại hoặc làm nổi bật; không có cấu hình quy tắc.', unsavedIndicator: 'Có thay đổi chưa lưu.', unsavedTitle: 'Có thay đổi chưa lưu', unsavedDescription: 'Bạn có muốn hủy thay đổi và rời khỏi biểu mẫu này không?', discard: 'Hủy thay đổi', keepEditing: 'Tiếp tục chỉnh sửa', saveInProgress: 'Đang lưu. Hãy đợi thao tác hoàn tất trước khi rời đi.' },
         requiredInfo: { code: 'Mã', name: 'Tên thông tin', inputType: 'Kiểu nhập', supplyMethod: 'Cách cung cấp', status: 'Trạng thái', configure: 'Cài đặt', title: 'Thông tin bắt buộc: {{name}}', history: 'Lịch sử thay đổi', time: 'Thời gian', actor: 'Người thực hiện', action: 'Hành động', back: '← Quay lại danh sách', saved: 'Đã lưu.', active: 'Đang hoạt động', inactive: 'Ngừng hoạt động', inputTypes: { TEXT: 'Văn bản', NUMBER: 'Số', EMAIL: 'Email', ADDRESS: 'Địa chỉ', DATE_TIME: 'Ngày giờ', PHONE_NUMBER: 'Số điện thoại', FAMILY_RELATIVE: 'Người thân', DROP_DOWN: 'Danh sách thả xuống', RADIO_GROUP: 'Nhóm lựa chọn' }, supplyMethods: { TYPING: 'Nhập liệu', SELECTION: 'Chọn', RADIO_GROUP: 'Nhóm lựa chọn', COMPOSED: 'Kết hợp' } },
         displaySet: { image: 'Ảnh', code: 'Mã', name: 'Tên bộ hiển thị', productLine: 'Dòng sản phẩm', app: 'Hiện ở App', web: 'Hiện ở Web', status: 'Trạng thái', configure: 'Cài đặt', imageLabel: 'Ảnh hiển thị', chooseImage: 'Chọn ảnh (demo, không tải ảnh thật)', cashLoan: 'Vay tiền mặt (CL)', creditCard: 'Thẻ tín dụng (CD)', labels: 'Nhãn sản phẩm', requiredSet: 'Bộ thông tin bắt buộc', fees: 'Biểu phí áp dụng', active: 'Đang hoạt động', inactive: 'Ngừng hoạt động', title: 'Bộ hiển thị: {{name}}', back: '← Quay lại danh sách', saved: 'Đã lưu.', productLines: { CL: 'Vay tiền mặt', CD: 'Thẻ tín dụng' } },
         background: { image: 'Ảnh', name: 'Tên', status: 'Trạng thái', segments: 'Phân khúc', order: 'Thứ tự', configure: 'Cài đặt', preview: 'Ảnh xem trước', chooseImage: 'Chọn ảnh (demo, không tải ảnh thật)', active: 'Đang hoạt động', draft: 'Bản nháp', inactive: 'Ngừng hoạt động', validity: 'Thời gian hiệu lực', from: 'Từ ngày', to: 'Đến ngày', cancel: 'Hủy', save: 'Lưu' },
@@ -72,7 +72,7 @@ const baseResources = {
     },
     chatgpt: {
       workspaceTitle: 'Không gian vận hành doanh nghiệp', designPlayground: 'Bản thử nghiệm thiết kế',
-      overview: 'Tổng quan', showcase: 'Trưng bày Design System', operations: 'Vận hành', designSystem: 'Design System',
+      overview: 'Tổng quan', showcase: 'Trưng bày Design System', operations: 'Vận hành', designSystem: 'Design System', products: 'Sản phẩm', productLabels: 'Nhãn sản phẩm', promotionTypes: 'Loại khuyến mãi', promotions: 'Khuyến mãi',
       skip: 'Chuyển đến nội dung', primaryNavigation: 'Điều hướng không gian ChatGPT', fictionalDisclaimer: 'Bản thử nghiệm hư cấu · không có dữ liệu thật',
       overviewTitle: 'Không gian vận hành', overviewDescription: 'Điểm bắt đầu tập trung cho tác vụ vận hành và đánh giá thiết kế.',
       showcaseTitle: 'Trưng bày Design System', showcaseDescription: 'Ví dụ thử nghiệm về nền tảng, trạng thái và biểu mẫu.',
@@ -101,7 +101,7 @@ const baseResources = {
     compare: {
       workspace: 'Không gian so sánh', title: 'So sánh đề xuất Claude và ChatGPT', index: 'Danh sách kịch bản', scenarioRegister: 'Danh mục kịch bản',
       indexIntro: 'Dùng cùng một tác vụ và tiêu chí hư cấu trên mỗi nền tảng. Ghi nhận riêng quan sát, sau đó ghi trạng thái bản nháp cục bộ.',
-      availabilityIntro: 'Màn hình kịch bản Claude hiện khả dụng. ChatGPT có tổng quan và showcase; các màn hình nghiệp vụ tương ứng chưa khả dụng.',
+      availabilityIntro: 'Các màn hình Claude và bốn thí điểm Scenario 1 trên ChatGPT hiện khả dụng. Các kịch bản ChatGPT khác vẫn chưa có màn hình tương ứng.',
       scenario: 'Kịch bản', decision: 'Quyết định', task: 'Tác vụ và kết quả mong đợi', expected: 'Mong đợi', steps: 'Các bước tái hiện',
       evaluation: 'Ma trận đánh giá', criterionCheck: 'Tiêu chí và cách kiểm tra', claudeObservation: 'Quan sát Claude', chatgptObservation: 'Quan sát ChatGPT', evidenceNotes: 'Ghi chú bằng chứng',
       sameCheck: 'Dùng cùng một phép kiểm tra trên mỗi nền tảng. Ghi hành vi quan sát được vào cột riêng. Bằng chứng có thể là tên ảnh chụp, mã issue hoặc liên kết an toàn. Để trống nếu chưa kiểm tra.',
@@ -115,26 +115,27 @@ const baseResources = {
       allScenarios: '← Tất cả kịch bản', openScreen: 'Mở màn hình {{platform}}', legacyUrl: 'URL tương thích cũ',
       destinationLabel: 'Đích đến', taskLabel: 'Tác vụ', skip: 'Chuyển đến nội dung',
       noChatgptScreen: 'Chưa có màn hình kịch bản tương ứng. Không ghi nhận kết quả cho đến khi màn hình đó có sẵn.',
+      pilotLinks: { productLabels: 'Nhãn sản phẩm — xem nhanh bằng drawer', promotionTypes: 'Loại khuyến mãi — chỉnh sửa nhanh bằng drawer', promotionOffer: 'Ưu đãi — biểu mẫu toàn trang', promotionHistory: 'Lịch sử khuyến mãi — xem nhật ký bằng modal', promotionHistoryHelp: 'Mở danh sách Khuyến mãi rồi chọn “Xem lịch sử” cho một bản ghi.' },
       fictional: 'Kịch bản hư cấu. Các màn hình nền tảng mở qua tuyến riêng.', unknown: 'Không tìm thấy kịch bản', returnIndex: 'Trở về danh sách kịch bản',
       taskCompletion: 'Hoàn thành tác vụ', navigationContext: 'Ngữ cảnh điều hướng', keyboardPath: 'Thao tác bàn phím', narrowWidth: 'Màn hình hẹp', operatorConfidence: 'Độ rõ ràng cho người vận hành',
       validationRecovery: 'Khôi phục lỗi kiểm tra', deepLink: 'Liên kết trực tiếp', exitPathCoverage: 'Các cách thoát', focusReturn: 'Trả lại tiêu điểm',
       crossPageAccuracy: 'Độ chính xác qua trang', saveConflictFeedback: 'Lưu và xung đột', errorDiscovery: 'Tìm lỗi', errorFocus: 'Tiêu điểm lỗi',
       actionReachability: 'Khả năng tiếp cận thao tác', dirtySaveState: 'Trạng thái chỉnh sửa và lưu',
       scenarioTitle: {
-        'drawer-vs-full-page': 'Drawer và chỉnh sửa toàn trang', 'unsaved-changes': 'Thay đổi chưa lưu', 'reorder-pagination': 'Sắp xếp khi có phân trang',
+        'drawer-vs-full-page': 'Các cách trình bày chi tiết sản phẩm', 'unsaved-changes': 'Thay đổi chưa lưu', 'reorder-pagination': 'Sắp xếp khi có phân trang',
         'tabs-vs-anchor': 'Tab và liên kết neo khi kiểm tra lỗi', 'contextual-save': 'Vị trí thanh lưu theo ngữ cảnh'
       },
       scenarioRecord: {
-        'drawer-vs-full-page': 'Ưu đãi hư cấu offer-1', 'unsaved-changes': 'Bản nháp drawer hư cấu', 'reorder-pagination': 'Danh sách 120 ưu đãi hư cấu',
+        'drawer-vs-full-page': 'Bốn thí điểm chi tiết sản phẩm hư cấu', 'unsaved-changes': 'Bản nháp drawer hư cấu', 'reorder-pagination': 'Danh sách 120 ưu đãi hư cấu',
         'tabs-vs-anchor': 'Ưu đãi hư cấu với reminderDaysBefore = 45', 'contextual-save': 'Cài đặt sản phẩm hư cấu product-setting-1'
       },
       scenarioTask: {
-        'drawer-vs-full-page': 'Sửa mô tả ưu đãi hư cấu rồi quay lại danh sách.', 'unsaved-changes': 'Thay đổi một trường rồi thử Hủy, đóng, mặt nạ, Escape, Back, chuyển nền tảng và tải lại.',
+        'drawer-vs-full-page': 'So sánh cách trình bày bổ trợ của Nhãn sản phẩm, Loại khuyến mãi, Ưu đãi và Lịch sử khuyến mãi.', 'unsaved-changes': 'Thay đổi một trường rồi thử Hủy, đóng, mặt nạ, Escape, Back, chuyển nền tảng và tải lại.',
         'reorder-pagination': 'Chuyển ưu đãi qua ranh giới trang và xác minh thứ tự mới.', 'tabs-vs-anchor': 'Gửi biểu mẫu có nhóm cuối chứa nhắc trước 45 ngày trong khi giới hạn là 30 ngày.',
         'contextual-save': 'Sửa cài đặt trong biểu mẫu dài, chuyển giữa các phần rồi lưu hoặc hủy.'
       },
       scenarioExpected: {
-        'drawer-vs-full-page': 'Thay đổi được lưu một lần, có thể tìm thấy phản hồi kiểm tra và đích quay lại rõ ràng.', 'unsaved-changes': 'Mỗi cách thoát đều báo trạng thái chưa lưu và cho phép ở lại hoặc bỏ thay đổi có chủ ý.',
+        'drawer-vs-full-page': 'Người vận hành có thể mở từng thí điểm và đánh giá ngữ cảnh, độ phức tạp, điều hướng và khôi phục theo các tiêu chí hiện có.', 'unsaved-changes': 'Mỗi cách thoát đều báo trạng thái chưa lưu và cho phép ở lại hoặc bỏ thay đổi có chủ ý.',
         'reorder-pagination': 'Người vận hành đặt được vị trí đích, lưu rõ ràng và xác minh thứ tự cuối.', 'tabs-vs-anchor': 'Người vận hành thấy vị trí lỗi, đến được trường, sửa lỗi và gửi được biểu mẫu.',
         'contextual-save': 'Nút lưu và thao tác luôn dễ tìm mà không che trường hoặc gửi nhầm.'
       },
@@ -150,7 +151,7 @@ const baseResources = {
       },
       criterionLabels: { completion: 'Hoàn thành tác vụ', context: 'Ngữ cảnh điều hướng', keyboard: 'Thao tác bàn phím', narrow: 'Màn hình hẹp', confidence: 'Độ tin cậy của người vận hành', validation: 'Khôi phục kiểm tra', 'deep-link': 'Liên kết trực tiếp', 'exit-paths': 'Các cách thoát', focus: 'Trả lại tiêu điểm', 'cross-page': 'Độ chính xác qua trang', 'save-feedback': 'Phản hồi lưu và xung đột', 'error-discovery': 'Tìm lỗi', 'error-focus': 'Tiêu điểm lỗi', 'action-reach': 'Khả năng tiếp cận thao tác', 'dirty-state': 'Trạng thái chỉnh sửa và lưu' },
       scenarioStep: {
-        'drawer-vs-full-page': ['Mở offer-1 từ danh sách bằng drawer.', 'Sửa mô tả rồi kiểm tra Lưu và Hủy.', 'Thử lại bằng liên kết chỉnh sửa toàn trang với cùng bản ghi hư cấu.', 'Tải lại từng liên kết trực tiếp và kiểm tra đường quay lại.'],
+        'drawer-vs-full-page': ['Mở Nhãn sản phẩm và xem nhanh chỉ đọc.', 'Mở Loại khuyến mãi và thử chỉnh sửa nhanh trong drawer.', 'Mở Khuyến mãi và xem biểu mẫu toàn trang cho ưu đãi phức tạp.', 'Mở “Xem lịch sử” từ Khuyến mãi để kiểm tra modal nhật ký.'],
         'unsaved-changes': ['Mở drawer cục bộ và nhập bản nháp.', 'Thử từng cách đóng và ghi lại nhật ký sự kiện.', 'Lặp lại trong drawer gắn với tuyến.', 'Thử các cách thoát tương tự ở ChatGPT khi có.'],
         'reorder-pagination': ['Thử kéo trong trang 1 rồi kiểm tra trang 2.', 'Thử chế độ sắp xếp tất cả và thao tác Lưu.', 'Thử nhập vị trí trực tiếp.', 'Lặp lại thao tác tương đương ở ChatGPT khi có.'],
         'tabs-vs-anchor': ['Để nguyên giá trị sai được điền sẵn.', 'Lưu ở biến thể Tabs và tìm lỗi.', 'Đặt lại rồi lưu ở biến thể phần và liên kết neo.', 'Lặp lại với ChatGPT khi có.'],
@@ -167,7 +168,7 @@ const baseResources = {
     },
     navigation: {
       switcher: 'Platform switcher', primary: 'Primary navigation', breadcrumb: 'Breadcrumb', landing: 'Choose a platform', workspace: 'Workspace', home: 'Home',
-      products: 'Products', offerManagement: 'Offer management', offerTypes: 'Offer Types', productSync: 'Product Sync', productSettings: 'Product Settings', productLabels: 'Product Labels', productParameters: 'Product parameters',
+      products: 'Products', offerManagement: 'Offer management', offerTypes: 'Offer Types', productSync: 'Product Sync', productSettings: 'Product Settings', productParameters: 'Product parameters',
       fees: 'Fees', promotions: 'Promotions', promotionTypes: 'Promotion Types', requiredInformation: 'Required Information', displayInformationSets: 'Display Information Sets', addOns: 'Add-ons',
       popularLoans: 'Popular Loans', attractiveOffer: 'Attractive Offer', exclusiveTouch: 'Assign by display type', system: 'System', backgroundManagement: 'Background management',
       backgroundLocks: 'Background Locks', experiments: 'Experiments', unsaved: '1. Unsaved changes guard', reorder: '2. Reorder and pagination', tabs: '3. Tabs vs Anchor',
@@ -187,7 +188,7 @@ const baseResources = {
       ,forms: { required: 'Required', feeCode: 'Fee code', feeName: 'Fee name', appliesTo: 'Applies to', feeType: 'Fee type', unit: 'Unit', value: 'Value', effectiveDate: 'Effective date', addOnCode: 'Code', addOnName: 'Product name', distribution: 'Distribution', associatedPartner: 'Associated partner', feeVnd: 'Fee (VND)', promotionName: 'Promotion name', promotionCode: 'Code', offerType: 'Offer type', startDate: 'Start date', endDate: 'End date', assignedProducts: 'Applicable products', promotionTypeName: 'Promotion type name', code: 'Code', status: 'Status', infoName: 'Information name', inputType: 'Input type', supplyMethod: 'Supply method', previewImage: 'Preview image', backgroundName: 'Name', customerSegments: 'Customer segments', validity: 'Validity period', fromDate: 'From date', toDate: 'To date' }
     },
     chatgpt: {
-      workspaceTitle: 'Enterprise Operations Workspace', designPlayground: 'Design playground', overview: 'Overview', showcase: 'Design System showcase', operations: 'Operations', designSystem: 'Design System',
+      workspaceTitle: 'Enterprise Operations Workspace', designPlayground: 'Design playground', overview: 'Overview', showcase: 'Design System showcase', operations: 'Operations', designSystem: 'Design System', products: 'Products', productLabels: 'Product Labels', promotionTypes: 'Promotion Types', promotions: 'Promotions',
       skip: 'Skip to content', primaryNavigation: 'ChatGPT workspace navigation', fictionalDisclaimer: 'Fictional prototype · no production data',
       overviewTitle: 'Operations workspace', overviewDescription: 'A focused starting point for operational tasks and design review.', showcaseTitle: 'Design System showcase',
       showcaseDescription: 'Prototype examples of foundations, states, and form behavior.', typography: 'Typography and semantic colors',
@@ -210,7 +211,7 @@ const baseResources = {
     compare: {
       workspace: 'Compare workspace', title: 'Compare Claude and ChatGPT proposals', index: 'Scenario index', scenarioRegister: 'Scenario register',
       indexIntro: 'Use the same fictional task and criterion on each platform. Record observations separately, then document a local draft status.',
-      availabilityIntro: 'Claude scenario screens are available. ChatGPT currently has an overview and showcase; matching business scenarios remain unavailable.',
+      availabilityIntro: 'Claude scenario screens and all four ChatGPT Scenario 1 pilots are available. Other ChatGPT scenarios do not yet have matching screens.',
       scenario: 'Scenario', decision: 'Decision', task: 'Task and expected outcome', expected: 'Expected', steps: 'Reproduction steps', evaluation: 'Evaluation matrix',
       criterionCheck: 'Criterion and check', claudeObservation: 'Claude observation', chatgptObservation: 'ChatGPT observation', evidenceNotes: 'Evidence notes',
       sameCheck: 'Use the same check on each platform. Put observed behavior in its own column. Evidence can be a screenshot filename, issue ID or safe link. Leave a cell blank when untested.',
@@ -223,24 +224,25 @@ const baseResources = {
       allScenarios: '← All scenarios', openScreen: 'Open {{platform}} screen', legacyUrl: 'Legacy-compatible URL',
       destinationLabel: 'Destination', taskLabel: 'Task', skip: 'Skip to content',
       noChatgptScreen: 'No matching scenario screen is available yet. Do not record a result until it exists.', fictional: 'Fictional scenarios. Platform screens open through separate routes.', unknown: 'Scenario not found', returnIndex: 'Return to scenario index',
+      pilotLinks: { productLabels: 'Product Labels — Drawer Quick View', promotionTypes: 'Promotion Types — Drawer Quick Edit', promotionOffer: 'Promotion Offer — Full-page form', promotionHistory: 'Promotion History — Log Viewer Modal', promotionHistoryHelp: 'Open Promotions, then select “View history” for a record.' },
       taskCompletion: 'Task completion', navigationContext: 'Navigation context', keyboardPath: 'Keyboard path', narrowWidth: 'Narrow width', operatorConfidence: 'Operator confidence',
       validationRecovery: 'Validation recovery', deepLink: 'Deep link', exitPathCoverage: 'Exit path coverage', focusReturn: 'Focus return', crossPageAccuracy: 'Cross-page accuracy',
       saveConflictFeedback: 'Save and conflict feedback', errorDiscovery: 'Error discovery', errorFocus: 'Error focus', actionReachability: 'Action reachability', dirtySaveState: 'Dirty and save state',
       scenarioTitle: {
-        'drawer-vs-full-page': 'Drawer vs full-page edit', 'unsaved-changes': 'Unsaved changes', 'reorder-pagination': 'Reorder with pagination',
+        'drawer-vs-full-page': 'Product Detail Presentation Patterns', 'unsaved-changes': 'Unsaved changes', 'reorder-pagination': 'Reorder with pagination',
         'tabs-vs-anchor': 'Tabs vs anchor validation', 'contextual-save': 'Contextual save placement'
       },
       scenarioRecord: {
-        'drawer-vs-full-page': 'Fictional offer offer-1', 'unsaved-changes': 'Fictional drawer draft', 'reorder-pagination': 'Fictional 120-offer list',
+        'drawer-vs-full-page': 'Four fictional product detail pilots', 'unsaved-changes': 'Fictional drawer draft', 'reorder-pagination': 'Fictional 120-offer list',
         'tabs-vs-anchor': 'Fictional offer with reminderDaysBefore = 45', 'contextual-save': 'Fictional product settings product-setting-1'
       },
       scenarioTask: {
-        'drawer-vs-full-page': 'Edit the fictional offer description, then return to the list.', 'unsaved-changes': 'Change a field, then try Cancel, close, mask, Escape, Back, platform navigation and refresh.',
+        'drawer-vs-full-page': 'Compare the complementary Product Label, Promotion Type, Promotion Offer, and Promotion History presentation patterns.', 'unsaved-changes': 'Change a field, then try Cancel, close, mask, Escape, Back, platform navigation and refresh.',
         'reorder-pagination': 'Move an offer across a page boundary and verify the resulting order.', 'tabs-vs-anchor': 'Submit a form whose last group contains a 45-day reminder against a 30-day limit.',
         'contextual-save': 'Edit a setting in a long form, move between sections, then save or discard.'
       },
       scenarioExpected: {
-        'drawer-vs-full-page': 'The change is saved once, the operator can find validation feedback, and the return destination is clear.', 'unsaved-changes': 'Every exit path communicates the unsaved state and permits a deliberate stay or discard choice.',
+        'drawer-vs-full-page': 'Operators can reach each pilot and evaluate context, input complexity, navigation, and recovery using the existing criteria.', 'unsaved-changes': 'Every exit path communicates the unsaved state and permits a deliberate stay or discard choice.',
         'reorder-pagination': 'The operator can express the target position, save it explicitly, and verify the final order.', 'tabs-vs-anchor': 'The operator sees the error location, reaches the field, fixes it and can submit.',
         'contextual-save': 'Save state and actions stay discoverable without hiding fields or creating accidental submissions.'
       },
@@ -256,7 +258,7 @@ const baseResources = {
       },
       criterionLabels: { completion: 'Task completion', context: 'Navigation context', keyboard: 'Keyboard path', narrow: 'Narrow width', confidence: 'Operator confidence', validation: 'Validation recovery', 'deep-link': 'Deep link', 'exit-paths': 'Exit path coverage', focus: 'Focus return', 'cross-page': 'Cross-page accuracy', 'save-feedback': 'Save and conflict feedback', 'error-discovery': 'Error discovery', 'error-focus': 'Error focus', 'action-reach': 'Action reachability', 'dirty-state': 'Dirty and save state' },
       scenarioStep: {
-        'drawer-vs-full-page': ['Open offer-1 from the list as a drawer.', 'Edit its description and inspect Save and Cancel.', 'Repeat through the full-page edit link with the same fictional record.', 'Reload each deep link and check the return path.'],
+        'drawer-vs-full-page': ['Open Product Labels and inspect the read-only quick view.', 'Open Promotion Types and try the compact quick edit.', 'Open Promotions and inspect a complex offer in the full-page form.', 'Open View History from Promotions and inspect the log viewer modal.'],
         'unsaved-changes': ['Open the local drawer and type a draft.', 'Try each close path and note the event log.', 'Repeat in the route-bound drawer.', 'Repeat the same exit paths in ChatGPT when available.'],
         'reorder-pagination': ['Try page-local drag on page 1 and inspect page 2.', 'Try all-item sort mode and its Save action.', 'Try direct position entry.', 'Repeat comparable actions in ChatGPT when available.'],
         'tabs-vs-anchor': ['Leave the prefilled invalid value untouched.', 'Save in the Tabs variant and locate the error.', 'Reset, then save in the section and anchor variant.', 'Repeat with ChatGPT when available.'],
@@ -265,8 +267,8 @@ const baseResources = {
     },
       pages: {
         sync: { matched: 'Matched', mismatched: 'Mismatched', pending: 'Pending', run: 'Sync now', history: 'Sync history', product: 'Product', status: 'Status', lastSync: 'Last synced', viewDiff: 'View differences', close: 'Close', field: 'Field', source: 'Source', target: 'Target', started: 'Started', finished: 'Finished', result: 'Result', changes: 'Changes', operator: 'Triggered by', syncing: 'Syncing', reconciling: 'Reconciling data', processing: 'Processing…', complete: 'Complete', syncedCount: 'Synced {{count}} products', prompt: 'Select “Sync now” to begin.', success: 'Success', failed: 'Failed' },
-        promotion: { add: 'Add promotion', code: 'Code', name: 'Promotion name', offerType: 'Offer type', period: 'Effective period', status: 'Status', edit: 'Edit', createTitle: 'Add promotion', title: 'Promotion: {{name}}', created: 'Promotion created.', back: '← Back to list', cancel: 'Cancel', create: 'Create', startDate: 'Start date', endDate: 'End date', assignedProducts: 'Applicable products', draft: 'Draft', active: 'Active', expired: 'Expired' },
-        promotionType: { add: 'Add promotion type', configure: 'Settings: {{name}}', name: 'Promotion type name', code: 'Code', status: 'Status', edit: 'Edit', active: 'Active', inactive: 'Inactive', draft: 'Draft', cancel: 'Cancel', save: 'Save' },
+        promotion: { listTitle: 'Promotions', add: 'Add promotion', code: 'Code', name: 'Promotion name', offerType: 'Offer type', period: 'Effective period', status: 'Status', edit: 'Edit', editFor: 'Edit promotion {{name}}', editById: 'Edit promotion {{id}}', createTitle: 'Add promotion', title: 'Promotion: {{name}}', createIdentity: 'A record ID will be assigned when you save.', recordId: 'Record ID: {{id}}', created: 'Promotion created.', saved: 'Saved.', dirtyLabel: 'Unsaved changes — {{name}}', back: '← Back to list', cancel: 'Cancel', create: 'Create', startDate: 'Start date', endDate: 'End date', assignedProducts: 'Applicable products', draft: 'Draft', active: 'Active', expired: 'Expired', sectionNavigation: 'Form section navigation', sectionDetails: 'Promotion details', sectionSchedule: 'Schedule and status', sectionProducts: 'Applicable products', validationSummary: 'Review the errors before saving.', goToField: 'Go to the {{field}} field with an error', saving: 'Saving…', saveFailed: 'Could not save changes. {{detail}} Your entered values have been kept.', loadFailed: 'Could not load this promotion.', retry: 'Retry', notFoundTitle: 'Promotion not found', notFoundDescription: 'No promotion exists with ID “{{id}}”.', unsavedTitle: 'Unsaved changes', unsavedDescription: 'Discard your changes and leave this page?', discard: 'Discard changes', stay: 'Stay', saveInProgressTitle: 'Saving promotion', saveInProgressDescription: 'Navigation is paused until saving finishes.', history: { view: 'View history', viewFor: 'View history for promotion {{name}}', title: 'Promotion history: {{name}}', demoNotice: 'This is a fictional sample event, not a system audit log.', eventList: 'Sample events', eventDetails: 'Event details', eventId: 'Event ID', promotionId: 'Promotion ID', action: 'Action', timestamp: 'Timestamp', actor: 'Actor (fictional)', source: 'Source', changes: 'Changes', before: 'Before', after: 'After', notApplicable: 'Not applicable', notProvided: 'Not provided', promotionNotFound: 'Promotion or sample history not found.', noEvents: 'No sample events are available.', eventNotFound: 'This event could not be found.', copyEvent: 'Copy event details', copySuccess: 'Event details copied.', copyFailure: 'Clipboard access failed. Select and copy the event details shown below.', copyPreview: 'Copyable text', commentsTitle: 'Comments ({{count}})', commentLifetime: 'Comments stay in memory only while this list remains open; navigation or reload resets the sample data.', threadEmpty: 'No comments yet. Comments are sample annotations and do not change the original event.', commentLabel: 'Comment', commentRequired: 'Enter a comment with non-whitespace content.', commentSubmit: 'Add comment', commentSuccess: 'Sample comment added.', commentAuthor: 'Demo operator (fictional)', close: 'Close', draftConfirmationTitle: 'Unsent comment', discardDraftOnClose: 'You have an unsent comment. Stay to continue writing, or discard the draft and close the dialog.', discardDraftOnSwitch: 'You have an unsent comment. Stay to continue writing, or discard the draft and view another event.', keepDraft: 'Keep writing', discardDraft: 'Discard draft', actions: { created: 'Promotion created (sample)', productsAssigned: 'Products assigned (sample)' }, fields: { name: 'Promotion name', code: 'Code', offerType: 'Offer type', status: 'Status', assignedProducts: 'Applicable products' } } },
+        promotionType: { title: 'Promotion Types', add: 'Add promotion type', create: 'Create promotion type', configure: 'Edit: {{name}}', editById: 'Edit promotion type {{id}}', edit: 'Edit', editFor: 'Edit promotion type {{name}}', recordId: 'Record ID: {{id}}', name: 'Promotion type name', code: 'Code', status: 'Status', active: 'Active', inactive: 'Inactive', draft: 'Draft', cancel: 'Cancel', save: 'Save', saveChanges: 'Save changes', saved: 'Promotion type saved.', validationFailed: 'Review the fields marked below before saving.', saveFailed: 'Could not save changes. Your entered values have been kept.', listLoadError: 'Could not load promotion types.', loadFailed: 'Could not load this promotion type.', retry: 'Retry', notFoundTitle: 'Promotion type not found', notFoundDescription: 'No promotion type exists with ID “{{id}}”.', returnToList: 'Return to list', mechanismNote: 'In this prototype, promotion type is a simple highlight or classification label; no rules are configured.', unsavedIndicator: 'Unsaved changes.', unsavedTitle: 'Unsaved changes', unsavedDescription: 'Discard your changes and leave this form?', discard: 'Discard changes', keepEditing: 'Keep editing', saveInProgress: 'Saving is in progress. Wait for it to finish before leaving.' },
         requiredInfo: { code: 'Code', name: 'Information name', inputType: 'Input type', supplyMethod: 'Supply method', status: 'Status', configure: 'Configure', title: 'Required information: {{name}}', history: 'Change history', time: 'Time', actor: 'Changed by', action: 'Action', back: '← Back to list', saved: 'Saved.', active: 'Active', inactive: 'Inactive', inputTypes: { TEXT: 'Text', NUMBER: 'Number', EMAIL: 'Email', ADDRESS: 'Address', DATE_TIME: 'Date and time', PHONE_NUMBER: 'Phone number', FAMILY_RELATIVE: 'Family member', DROP_DOWN: 'Dropdown', RADIO_GROUP: 'Radio group' }, supplyMethods: { TYPING: 'Typing', SELECTION: 'Selection', RADIO_GROUP: 'Radio group', COMPOSED: 'Combined' } },
         displaySet: { image: 'Image', code: 'Code', name: 'Display information set name', productLine: 'Product line', app: 'Show in App', web: 'Show on Web', status: 'Status', configure: 'Configure', imageLabel: 'Display image', chooseImage: 'Choose image (demo only; no upload)', cashLoan: 'Cash loan (CL)', creditCard: 'Credit card (CD)', labels: 'Product labels', requiredSet: 'Required information set', fees: 'Applicable fees', active: 'Active', inactive: 'Inactive', title: 'Display set: {{name}}', back: '← Back to list', saved: 'Saved.', productLines: { CL: 'Cash loan', CD: 'Credit card' } },
         background: { image: 'Image', name: 'Name', status: 'Status', segments: 'Segments', order: 'Order', configure: 'Configure', preview: 'Preview image', chooseImage: 'Choose image (demo only; no upload)', active: 'Active', draft: 'Draft', inactive: 'Inactive', validity: 'Effective period', from: 'From date', to: 'To date', cancel: 'Cancel', save: 'Save' },
@@ -299,7 +301,7 @@ const enPageResources = findPageResources(baseResources.en)! as typeof viPageRes
 const { items: unusedViDecisionItems, ...viDecisionResources } = viPageResources.decisions;
 const { items: unusedEnDecisionItems, ...enDecisionResources } = enPageResources.decisions;
 
-export const resources = {
+const composedResources = {
   ...baseResources,
   vi: {
     ...baseResources.vi,
@@ -307,19 +309,6 @@ export const resources = {
       ...baseResources.vi.claude,
       pages: {
         ...viPageResources,
-        productLabels: {
-          title: 'Nhãn sản phẩm', filters: 'Bộ lọc nhãn sản phẩm', search: 'Tìm theo tên hoặc mã nhãn', searchPlaceholder: 'Tên hoặc mã nhãn',
-          productLineFilter: 'Lọc theo dòng sản phẩm', allProductLines: 'Tất cả dòng sản phẩm', statusFilter: 'Lọc theo trạng thái', allStatuses: 'Tất cả trạng thái',
-          name: 'Tên nhãn', code: 'Mã nhãn', productLine: 'Dòng sản phẩm', status: 'Trạng thái', actions: 'Thao tác',
-          viewDetails: 'Xem chi tiết', viewDetailsFor: 'Xem chi tiết nhãn {{name}}',
-          lines: { 'cash-loan': 'Vay tiền mặt', 'credit-card': 'Thẻ tín dụng' },
-          statuses: { active: 'Đang hoạt động', inactive: 'Ngừng hoạt động' },
-          classifications: { eligibility: 'Phân loại điều kiện', display: 'Phân loại hiển thị', pricing: 'Phân loại giá' },
-          empty: 'Không tìm thấy nhãn phù hợp.', range: '{{from}}–{{to}} / {{total}} nhãn', resultCount: 'Có {{count}} nhãn phù hợp.',
-          quickView: 'Xem nhanh nhãn sản phẩm', quickViewTitle: 'Xem nhanh: {{name}}', recordId: 'Mã bản ghi: {{id}}',
-          classification: 'Phân loại', associatedProduct: 'Sản phẩm liên quan', lastUpdated: 'Cập nhật lần cuối', notProvided: 'Chưa có thông tin',
-          close: 'Đóng', notFoundTitle: 'Không tìm thấy nhãn', notFoundDescription: 'Không có nhãn sản phẩm với mã “{{id}}”.', returnToList: 'Quay lại danh sách'
-        },
         decisions: viDecisionResources,
         promotion: { ...viPageResources.promotion, ...pageExtra.vi.promotion },
         forms: { ...pageExtra.vi.forms },
@@ -334,19 +323,6 @@ export const resources = {
       ...baseResources.en.claude,
       pages: {
         ...enPageResources,
-        productLabels: {
-          title: 'Product Labels', filters: 'Product Label filters', search: 'Search by label name or code', searchPlaceholder: 'Label name or code',
-          productLineFilter: 'Filter by product line', allProductLines: 'All product lines', statusFilter: 'Filter by status', allStatuses: 'All statuses',
-          name: 'Label name', code: 'Label code', productLine: 'Product line', status: 'Status', actions: 'Actions',
-          viewDetails: 'View details', viewDetailsFor: 'View details for label {{name}}',
-          lines: { 'cash-loan': 'Cash loan', 'credit-card': 'Credit card' },
-          statuses: { active: 'Active', inactive: 'Inactive' },
-          classifications: { eligibility: 'Eligibility classification', display: 'Display classification', pricing: 'Pricing classification' },
-          empty: 'No matching labels found.', range: '{{from}}–{{to}} of {{total}} labels', resultCount: '{{count}} matching labels.',
-          quickView: 'Product Label quick view', quickViewTitle: 'Quick view: {{name}}', recordId: 'Record ID: {{id}}',
-          classification: 'Classification', associatedProduct: 'Associated product', lastUpdated: 'Last updated', notProvided: 'Not provided',
-          close: 'Close', notFoundTitle: 'Label not found', notFoundDescription: 'No Product Label exists with ID “{{id}}”.', returnToList: 'Return to list'
-        },
         decisions: enDecisionResources,
         promotion: { ...enPageResources.promotion, ...pageExtra.en.promotion },
         forms: { ...pageExtra.en.forms },
@@ -355,6 +331,58 @@ export const resources = {
       }
     }
   }
+} as const;
+
+const pilotProductLabels = {
+  vi: { title: 'Nhãn sản phẩm', filters: 'Bộ lọc nhãn sản phẩm', search: 'Tìm theo tên hoặc mã nhãn', searchPlaceholder: 'Tên hoặc mã nhãn', productLineFilter: 'Lọc theo dòng sản phẩm', allProductLines: 'Tất cả dòng sản phẩm', statusFilter: 'Lọc theo trạng thái', allStatuses: 'Tất cả trạng thái', name: 'Tên nhãn', code: 'Mã nhãn', productLine: 'Dòng sản phẩm', status: 'Trạng thái', actions: 'Thao tác', viewDetails: 'Xem chi tiết', viewDetailsFor: 'Xem chi tiết nhãn {{name}}', lines: { 'cash-loan': 'Vay tiền mặt', 'credit-card': 'Thẻ tín dụng' }, statuses: { active: 'Đang hoạt động', inactive: 'Ngừng hoạt động' }, classifications: { eligibility: 'Phân loại điều kiện', display: 'Phân loại hiển thị', pricing: 'Phân loại giá' }, empty: 'Không tìm thấy nhãn phù hợp.', range: '{{from}}–{{to}} / {{total}} nhãn', resultCount: 'Có {{count}} nhãn phù hợp.', quickView: 'Xem nhanh nhãn sản phẩm', quickViewTitle: 'Xem nhanh: {{name}}', recordId: 'Mã bản ghi: {{id}}', classification: 'Phân loại', associatedProduct: 'Sản phẩm liên quan', lastUpdated: 'Cập nhật lần cuối', notProvided: 'Chưa có thông tin', close: 'Đóng', notFoundTitle: 'Không tìm thấy nhãn', notFoundDescription: 'Không có nhãn sản phẩm với mã “{{id}}”.', returnToList: 'Quay lại danh sách' },
+  en: { title: 'Product Labels', filters: 'Product Label filters', search: 'Search by label name or code', searchPlaceholder: 'Label name or code', productLineFilter: 'Filter by product line', allProductLines: 'All product lines', statusFilter: 'Filter by status', allStatuses: 'All statuses', name: 'Label name', code: 'Label code', productLine: 'Product line', status: 'Status', actions: 'Actions', viewDetails: 'View details', viewDetailsFor: 'View details for label {{name}}', lines: { 'cash-loan': 'Cash loan', 'credit-card': 'Credit card' }, statuses: { active: 'Active', inactive: 'Inactive' }, classifications: { eligibility: 'Eligibility classification', display: 'Display classification', pricing: 'Pricing classification' }, empty: 'No matching labels found.', range: '{{from}}–{{to}} of {{total}} labels', resultCount: '{{count}} matching labels.', quickView: 'Product Label quick view', quickViewTitle: 'Quick view: {{name}}', recordId: 'Record ID: {{id}}', classification: 'Classification', associatedProduct: 'Associated product', lastUpdated: 'Last updated', notProvided: 'Not provided', close: 'Close', notFoundTitle: 'Label not found', notFoundDescription: 'No Product Label exists with ID “{{id}}”.', returnToList: 'Return to list' }
+} as const;
+
+// ChatGPT owns this pilot copy independently. These values intentionally retain
+// the existing visible wording without sharing mutable Claude page objects.
+const chatgptPilotPages = {
+  vi: {
+    promotionType: {
+      title: 'Loại khuyến mãi', add: 'Thêm loại khuyến mãi', create: 'Tạo loại khuyến mãi', configure: 'Chỉnh sửa: {{name}}', editById: 'Chỉnh sửa loại khuyến mãi {{id}}',
+      edit: 'Sửa', editFor: 'Sửa loại khuyến mãi {{name}}', recordId: 'Mã bản ghi: {{id}}', name: 'Tên loại khuyến mãi', code: 'Mã', status: 'Trạng thái', active: 'Đang hoạt động', inactive: 'Ngừng hoạt động', draft: 'Bản nháp',
+      cancel: 'Hủy', save: 'Lưu', saveChanges: 'Lưu thay đổi', saved: 'Đã lưu loại khuyến mãi.', validationFailed: 'Kiểm tra các trường được đánh dấu trước khi lưu.', saveFailed: 'Không thể lưu thay đổi. Dữ liệu đang nhập vẫn được giữ lại.',
+      listLoadError: 'Không thể tải danh sách loại khuyến mãi.', loadFailed: 'Không thể tải loại khuyến mãi.', retry: 'Thử lại', notFoundTitle: 'Không tìm thấy loại khuyến mãi', notFoundDescription: 'Không có loại khuyến mãi với mã “{{id}}”.', returnToList: 'Quay lại danh sách',
+      mechanismNote: 'Trong bản mẫu này, loại khuyến mãi chỉ dùng làm nhãn phân loại hoặc làm nổi bật; không có cấu hình quy tắc.', unsavedIndicator: 'Có thay đổi chưa lưu.', unsavedTitle: 'Có thay đổi chưa lưu', unsavedDescription: 'Bạn có muốn hủy thay đổi và rời khỏi biểu mẫu này không?', discard: 'Hủy thay đổi', keepEditing: 'Tiếp tục chỉnh sửa', saveInProgress: 'Đang lưu. Hãy đợi thao tác hoàn tất trước khi rời đi.',
+      createBreadcrumb: 'Thêm loại khuyến mãi', editBreadcrumb: 'Chỉnh sửa loại khuyến mãi'
+    },
+    promotion: {
+      listTitle: 'Khuyến mãi', add: 'Thêm khuyến mãi', code: 'Mã', name: 'Tên khuyến mãi', offerType: 'Loại ưu đãi', period: 'Hiệu lực', status: 'Trạng thái', edit: 'Sửa', editFor: 'Sửa khuyến mãi {{name}}', editById: 'Sửa khuyến mãi {{id}}', createTitle: 'Thêm khuyến mãi', title: 'Khuyến mãi: {{name}}', createIdentity: 'Mã bản ghi sẽ được tạo khi lưu.', recordId: 'Mã bản ghi: {{id}}', created: 'Đã tạo khuyến mãi.', saved: 'Đã lưu.', dirtyLabel: 'Thay đổi chưa lưu — {{name}}', back: '← Quay lại danh sách', cancel: 'Hủy', create: 'Tạo mới', startDate: 'Ngày bắt đầu', endDate: 'Ngày kết thúc', assignedProducts: 'Sản phẩm áp dụng', draft: 'Bản nháp', active: 'Đang hoạt động', expired: 'Hết hạn',
+      sectionNavigation: 'Điều hướng các phần biểu mẫu', sectionDetails: 'Thông tin khuyến mãi', sectionSchedule: 'Thời gian và trạng thái', sectionProducts: 'Sản phẩm áp dụng', validationSummary: 'Có lỗi cần sửa trước khi lưu.', goToField: 'Đi đến trường {{field}} có lỗi', saving: 'Đang lưu…', saveFailed: 'Không thể lưu thay đổi. {{detail}} Dữ liệu đã nhập vẫn được giữ lại.', loadFailed: 'Không thể tải khuyến mãi.', retry: 'Thử lại', notFoundTitle: 'Không tìm thấy khuyến mãi', notFoundDescription: 'Không có khuyến mãi với mã “{{id}}”.', unsavedTitle: 'Có thay đổi chưa lưu', unsavedDescription: 'Bạn có muốn hủy thay đổi và rời khỏi trang này không?', discard: 'Hủy thay đổi', stay: 'Ở lại', saveInProgressTitle: 'Đang lưu khuyến mãi', saveInProgressDescription: 'Điều hướng đang tạm dừng cho đến khi thao tác lưu hoàn tất.',
+      createBreadcrumb: 'Tạo khuyến mãi', editBreadcrumb: 'Chỉnh sửa khuyến mãi',
+      history: {
+        view: 'Xem lịch sử', viewFor: 'Xem lịch sử khuyến mãi {{name}}', title: 'Lịch sử khuyến mãi: {{name}}', demoNotice: 'Đây là sự kiện minh họa bằng dữ liệu hư cấu, không phải nhật ký hệ thống.', eventList: 'Sự kiện mẫu', eventDetails: 'Chi tiết sự kiện', eventId: 'Mã sự kiện', promotionId: 'Mã khuyến mãi', action: 'Hành động', timestamp: 'Thời điểm', actor: 'Người thực hiện (hư cấu)', source: 'Nguồn', changes: 'Thay đổi', before: 'Trước', after: 'Sau', notApplicable: 'Không có', notProvided: 'Không được cung cấp', promotionNotFound: 'Không tìm thấy khuyến mãi hoặc lịch sử mẫu.', noEvents: 'Chưa có sự kiện mẫu.', eventNotFound: 'Không tìm thấy sự kiện này.', copyEvent: 'Sao chép chi tiết sự kiện', copySuccess: 'Đã sao chép chi tiết sự kiện.', copyFailure: 'Không thể truy cập clipboard. Hãy chọn và sao chép nội dung chi tiết đang hiển thị bên dưới.', copyPreview: 'Nội dung có thể sao chép', commentsTitle: 'Nhận xét ({{count}})', commentLifetime: 'Nhận xét chỉ lưu trong bộ nhớ khi danh sách này còn mở; tải lại hoặc rời trang sẽ xóa dữ liệu mẫu.', threadEmpty: 'Chưa có nhận xét. Nhận xét chỉ là ghi chú mẫu, không thay đổi sự kiện gốc.', commentLabel: 'Nhận xét', commentRequired: 'Nhập nội dung nhận xét không chỉ gồm khoảng trắng.', commentSubmit: 'Thêm nhận xét', commentSuccess: 'Đã thêm nhận xét mẫu.', commentAuthor: 'Người thao tác mẫu (hư cấu)', close: 'Đóng', draftConfirmationTitle: 'Nhận xét chưa gửi', discardDraftOnClose: 'Bạn có nhận xét chưa gửi. Ở lại để tiếp tục hoặc hủy bản nháp và đóng cửa sổ.', discardDraftOnSwitch: 'Bạn có nhận xét chưa gửi. Ở lại để tiếp tục hoặc hủy bản nháp và xem sự kiện khác.', keepDraft: 'Tiếp tục viết', discardDraft: 'Hủy bản nháp', actions: { created: 'Tạo khuyến mãi (mẫu)', productsAssigned: 'Gán sản phẩm (mẫu)' }, fields: { name: 'Tên khuyến mãi', code: 'Mã', offerType: 'Loại ưu đãi', status: 'Trạng thái', assignedProducts: 'Sản phẩm áp dụng' }
+      }
+    }
+  },
+  en: {
+    promotionType: {
+      title: 'Promotion Types', add: 'Add promotion type', create: 'Create promotion type', configure: 'Edit: {{name}}', editById: 'Edit promotion type {{id}}',
+      edit: 'Edit', editFor: 'Edit promotion type {{name}}', recordId: 'Record ID: {{id}}', name: 'Promotion type name', code: 'Code', status: 'Status', active: 'Active', inactive: 'Inactive', draft: 'Draft',
+      cancel: 'Cancel', save: 'Save', saveChanges: 'Save changes', saved: 'Promotion type saved.', validationFailed: 'Review the fields marked below before saving.', saveFailed: 'Could not save changes. Your entered values have been kept.',
+      listLoadError: 'Could not load promotion types.', loadFailed: 'Could not load this promotion type.', retry: 'Retry', notFoundTitle: 'Promotion type not found', notFoundDescription: 'No promotion type exists with ID “{{id}}”.', returnToList: 'Return to list',
+      mechanismNote: 'In this prototype, promotion type is a simple highlight or classification label; no rules are configured.', unsavedIndicator: 'Unsaved changes.', unsavedTitle: 'Unsaved changes', unsavedDescription: 'Discard your changes and leave this form?', discard: 'Discard changes', keepEditing: 'Keep editing', saveInProgress: 'Saving is in progress. Wait for it to finish before leaving.',
+      createBreadcrumb: 'Add promotion type', editBreadcrumb: 'Edit promotion type'
+    },
+    promotion: {
+      listTitle: 'Promotions', add: 'Add promotion', code: 'Code', name: 'Promotion name', offerType: 'Offer type', period: 'Effective period', status: 'Status', edit: 'Edit', editFor: 'Edit promotion {{name}}', editById: 'Edit promotion {{id}}', createTitle: 'Add promotion', title: 'Promotion: {{name}}', createIdentity: 'A record ID will be assigned when you save.', recordId: 'Record ID: {{id}}', created: 'Promotion created.', saved: 'Saved.', dirtyLabel: 'Unsaved changes — {{name}}', back: '← Back to list', cancel: 'Cancel', create: 'Create', startDate: 'Start date', endDate: 'End date', assignedProducts: 'Applicable products', draft: 'Draft', active: 'Active', expired: 'Expired',
+      sectionNavigation: 'Form section navigation', sectionDetails: 'Promotion details', sectionSchedule: 'Schedule and status', sectionProducts: 'Applicable products', validationSummary: 'Review the errors before saving.', goToField: 'Go to the {{field}} field with an error', saving: 'Saving…', saveFailed: 'Could not save changes. {{detail}} Your entered values have been kept.', loadFailed: 'Could not load this promotion.', retry: 'Retry', notFoundTitle: 'Promotion not found', notFoundDescription: 'No promotion exists with ID “{{id}}”.', unsavedTitle: 'Unsaved changes', unsavedDescription: 'Discard your changes and leave this page?', discard: 'Discard changes', stay: 'Stay', saveInProgressTitle: 'Saving promotion', saveInProgressDescription: 'Navigation is paused until saving finishes.',
+      createBreadcrumb: 'Create promotion', editBreadcrumb: 'Edit promotion',
+      history: {
+        view: 'View history', viewFor: 'View history for promotion {{name}}', title: 'Promotion history: {{name}}', demoNotice: 'This is a fictional sample event, not a system audit log.', eventList: 'Sample events', eventDetails: 'Event details', eventId: 'Event ID', promotionId: 'Promotion ID', action: 'Action', timestamp: 'Timestamp', actor: 'Actor (fictional)', source: 'Source', changes: 'Changes', before: 'Before', after: 'After', notApplicable: 'Not applicable', notProvided: 'Not provided', promotionNotFound: 'Promotion or sample history not found.', noEvents: 'No sample events are available.', eventNotFound: 'This event could not be found.', copyEvent: 'Copy event details', copySuccess: 'Event details copied.', copyFailure: 'Clipboard access failed. Select and copy the event details shown below.', copyPreview: 'Copyable text', commentsTitle: 'Comments ({{count}})', commentLifetime: 'Comments stay in memory only while this list remains open; navigation or reload resets the sample data.', threadEmpty: 'No comments yet. Comments are sample annotations and do not change the original event.', commentLabel: 'Comment', commentRequired: 'Enter a comment with non-whitespace content.', commentSubmit: 'Add comment', commentSuccess: 'Sample comment added.', commentAuthor: 'Demo operator (fictional)', close: 'Close', draftConfirmationTitle: 'Unsent comment', discardDraftOnClose: 'You have an unsent comment. Stay to continue writing, or discard the draft and close the dialog.', discardDraftOnSwitch: 'You have an unsent comment. Stay to continue writing, or discard the draft and view another event.', keepDraft: 'Keep writing', discardDraft: 'Discard draft', actions: { created: 'Promotion created (sample)', productsAssigned: 'Products assigned (sample)' }, fields: { name: 'Promotion name', code: 'Code', offerType: 'Offer type', status: 'Status', assignedProducts: 'Applicable products' }
+      }
+    }
+  }
+} as const;
+
+export const resources = {
+  ...composedResources,
+  vi: { ...composedResources.vi, chatgpt: { ...composedResources.vi.chatgpt, scenario1: { productLabels: pilotProductLabels.vi, promotionType: chatgptPilotPages.vi.promotionType, promotion: chatgptPilotPages.vi.promotion }, pages: { productLabels: pilotProductLabels.vi, promotionType: chatgptPilotPages.vi.promotionType, promotion: chatgptPilotPages.vi.promotion } } },
+  en: { ...composedResources.en, chatgpt: { ...composedResources.en.chatgpt, scenario1: { productLabels: pilotProductLabels.en, promotionType: chatgptPilotPages.en.promotionType, promotion: chatgptPilotPages.en.promotion }, pages: { productLabels: pilotProductLabels.en, promotionType: chatgptPilotPages.en.promotionType, promotion: chatgptPilotPages.en.promotion } } }
 } as const;
 
 type DeepKeys<T> = T extends readonly unknown[]
@@ -379,11 +407,12 @@ const attractiveOfferKeyParity: SameKeys<typeof resources.vi.claude.pages.attrac
 const exclusiveTouchKeyParity: SameKeys<typeof resources.vi.claude.pages.exclusiveTouch, typeof resources.en.claude.pages.exclusiveTouch> = true;
 const experimentsKeyParity: SameKeys<typeof resources.vi.claude.pages.experiments, typeof resources.en.claude.pages.experiments> = true;
 const decisionsKeyParity: SameKeys<typeof resources.vi.claude.pages.decisions, typeof resources.en.claude.pages.decisions> = true;
-const productLabelsKeyParity: SameKeys<typeof resources.vi.claude.pages.productLabels, typeof resources.en.claude.pages.productLabels> = true;
 const formsKeyParity: SameKeys<typeof resources.vi.claude.pages.forms, typeof resources.en.claude.pages.forms> = true;
 const offerPageKeyParity: SameKeys<typeof resources.vi.claude.pages.offer, typeof resources.en.claude.pages.offer> = true;
 const claudeBaseKeyParity: SameKeys<Omit<typeof resources.vi.claude, 'pages'>, Omit<typeof resources.en.claude, 'pages'>> = true;
 const chatgptKeyParity: SameKeys<typeof resources.vi.chatgpt, typeof resources.en.chatgpt> = true;
+const chatgptScenario1KeyParity: SameKeys<typeof resources.vi.chatgpt.scenario1, typeof resources.en.chatgpt.scenario1> = true;
+const chatgptPagesKeyParity: SameKeys<typeof resources.vi.chatgpt.pages, typeof resources.en.chatgpt.pages> = true;
 const compareKeyParity: SameKeys<typeof resources.vi.compare, typeof resources.en.compare> = true;
 const validationKeyParity: SameKeys<typeof resources.vi.validation, typeof resources.en.validation> = true;
-void [commonKeyParity, navigationKeyParity, claudePageKeyParity, promotionKeyParity, promotionTypeKeyParity, requiredInfoKeyParity, displaySetKeyParity, backgroundKeyParity, assignedKeyParity, popularLoansKeyParity, attractiveOfferKeyParity, exclusiveTouchKeyParity, experimentsKeyParity, decisionsKeyParity, productLabelsKeyParity, formsKeyParity, offerPageKeyParity, claudeBaseKeyParity, chatgptKeyParity, compareKeyParity, validationKeyParity];
+void [commonKeyParity, navigationKeyParity, claudePageKeyParity, promotionKeyParity, promotionTypeKeyParity, requiredInfoKeyParity, displaySetKeyParity, backgroundKeyParity, assignedKeyParity, popularLoansKeyParity, attractiveOfferKeyParity, exclusiveTouchKeyParity, experimentsKeyParity, decisionsKeyParity, formsKeyParity, offerPageKeyParity, claudeBaseKeyParity, chatgptKeyParity, chatgptScenario1KeyParity, chatgptPagesKeyParity, compareKeyParity, validationKeyParity];

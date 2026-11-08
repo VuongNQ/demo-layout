@@ -1,3 +1,4 @@
+
 import { claudePath } from '../routes/route-meta';
 
 // One source of truth for both the sidebar and the breadcrumb. The real
@@ -22,7 +23,6 @@ export type MenuNode = {
 export const menuTranslationKeys: Record<string, string> = {
   products: 'products', 'offer-management': 'offerManagement', 'offer-types': 'offerTypes',
   'product-sync': 'productSync', 'product-settings': 'productSettings', 'product-parameters': 'productParameters',
-  'product-labels': 'productLabels',
   fees: 'fees', promotions: 'promotions', 'promotion-types': 'promotionTypes',
   'required-information': 'requiredInformation', 'display-information-sets': 'displayInformationSets',
   'add-ons': 'addOns', 'popular-loans': 'popularLoans', 'attractive-offer': 'attractiveOffer',
@@ -30,13 +30,6 @@ export const menuTranslationKeys: Record<string, string> = {
   'background-locks': 'backgroundLocks', experiments: 'experiments', 'exp-unsaved': 'unsaved',
   'exp-reorder': 'reorder', 'exp-tabs': 'tabs', decisions: 'decisions'
 };
-
-// A route-backed Product Label drawer is a child of its list. Keep the
-// list selected and use its breadcrumb while the drawer route is active.
-export function resolveClaudeListContext(pathname: string): string {
-  const listPath = claudePath('productLabels');
-  return pathname.startsWith(`${listPath}/`) ? listPath : pathname;
-}
 
 export const menuTree: MenuNode[] = [
   {
@@ -69,13 +62,6 @@ export const menuTree: MenuNode[] = [
         label: 'Cài đặt sản phẩm',
         icon: 'tool',
         path: claudePath('productSettings'),
-        permission: 'demo:view'
-      },
-      {
-        key: 'product-labels',
-        label: 'Nhãn sản phẩm',
-        icon: 'tags',
-        path: claudePath('productLabels'),
         permission: 'demo:view'
       },
       // Phase 1 of recreating the real Products domain's settings

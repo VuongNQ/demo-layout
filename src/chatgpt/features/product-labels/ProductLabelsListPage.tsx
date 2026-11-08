@@ -4,16 +4,16 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Link, Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { ColumnsType } from 'antd/es/table';
-import { claudePath } from '@/claude/routes/route-meta';
-import { DEMO_PRODUCT_LABELS, type ProductLabel, type ProductLabelProductLine, type ProductLabelStatus } from './demo-product-labels-data';
-import { filterProductLabels, getProductLabelPage, parseProductLabelFilters, PRODUCT_LABEL_PAGE_SIZE, updateProductLabelSearch } from './product-labels.utils';
+import { chatgptPath } from '@/chatgpt/routes/route-meta';
+import { DEMO_PRODUCT_LABELS, type ProductLabel, type ProductLabelProductLine, type ProductLabelStatus } from '@/features/product-labels/demo-product-labels-data';
+import { filterProductLabels, getProductLabelPage, parseProductLabelFilters, PRODUCT_LABEL_PAGE_SIZE, updateProductLabelSearch } from '@/features/product-labels/product-labels.utils';
 import styles from './ProductLabelsListPage.module.scss';
 
 export function ProductLabelsListPage() {
-  const { t } = useTranslation('claude');
+  const { t } = useTranslation('chatgpt');
   const location = useLocation();
   const [, setSearchParams] = useSearchParams();
-  const listPath = claudePath('productLabels');
+  const listPath = chatgptPath('productLabels');
   const previousPathname = useRef(location.pathname);
   const filters = parseProductLabelFilters(location.search);
   const filtered = useMemo(() => filterProductLabels(DEMO_PRODUCT_LABELS, filters), [filters.query, filters.productLine, filters.status]);
@@ -45,26 +45,26 @@ export function ProductLabelsListPage() {
   }
 
   const columns: ColumnsType<ProductLabel> = [
-    { title: t('pages.productLabels.name'), dataIndex: 'name', key: 'name' },
-    { title: t('pages.productLabels.code'), dataIndex: 'code', key: 'code' },
+    { title: t('scenario1.productLabels.name'), dataIndex: 'name', key: 'name' },
+    { title: t('scenario1.productLabels.code'), dataIndex: 'code', key: 'code' },
     {
-      title: t('pages.productLabels.productLine'), dataIndex: 'productLine', key: 'productLine',
-      render: (line: ProductLabelProductLine) => t(`pages.productLabels.lines.${line}`)
+      title: t('scenario1.productLabels.productLine'), dataIndex: 'productLine', key: 'productLine',
+      render: (line: ProductLabelProductLine) => t(`scenario1.productLabels.lines.${line}`)
     },
     {
-      title: t('pages.productLabels.status'), dataIndex: 'status', key: 'status',
-      render: (status: ProductLabelStatus) => t(`pages.productLabels.statuses.${status}`)
+      title: t('scenario1.productLabels.status'), dataIndex: 'status', key: 'status',
+      render: (status: ProductLabelStatus) => t(`scenario1.productLabels.statuses.${status}`)
     },
     {
-      title: t('pages.productLabels.actions'), key: 'actions',
+      title: t('scenario1.productLabels.actions'), key: 'actions',
       render: (_, record) => (
         <Link
           id={`product-label-view-${record.id}`}
           className={styles.rowAction}
-          aria-label={t('pages.productLabels.viewDetailsFor', { name: record.name })}
-          to={{ pathname: claudePath('productLabelDetail', { id: record.id }), search: location.search, hash: location.hash }}
+          aria-label={t('scenario1.productLabels.viewDetailsFor', { name: record.name })}
+          to={{ pathname: chatgptPath('productLabelDetail', { id: record.id }), search: location.search, hash: location.hash }}
         >
-          {t('pages.productLabels.viewDetails')}
+          {t('scenario1.productLabels.viewDetails')}
         </Link>
       )
     }
@@ -73,36 +73,36 @@ export function ProductLabelsListPage() {
   return (
     <section className={styles.page} aria-labelledby="product-labels-list-heading">
       <Typography.Title level={1} id="product-labels-list-heading" tabIndex={-1} className={styles.heading}>
-        {t('pages.productLabels.title')}
+        {t('scenario1.productLabels.title')}
       </Typography.Title>
-      <div className={styles.filters} role="group" aria-label={t('pages.productLabels.filters')}>
+      <div className={styles.filters} role="group" aria-label={t('scenario1.productLabels.filters')}>
         <Input
           allowClear
           value={filters.query}
           prefix={<SearchOutlined aria-hidden="true" />}
-          aria-label={t('pages.productLabels.search')}
-          placeholder={t('pages.productLabels.searchPlaceholder')}
+          aria-label={t('scenario1.productLabels.search')}
+          placeholder={t('scenario1.productLabels.searchPlaceholder')}
           onChange={(event) => updateFilters({ query: event.target.value, page: 1 })}
         />
         <Select
           value={filters.productLine || undefined}
           allowClear
-          aria-label={t('pages.productLabels.productLineFilter')}
-          placeholder={t('pages.productLabels.allProductLines')}
+          aria-label={t('scenario1.productLabels.productLineFilter')}
+          placeholder={t('scenario1.productLabels.allProductLines')}
           options={[
-            { value: 'cash-loan', label: t('pages.productLabels.lines.cash-loan') },
-            { value: 'credit-card', label: t('pages.productLabels.lines.credit-card') }
+            { value: 'cash-loan', label: t('scenario1.productLabels.lines.cash-loan') },
+            { value: 'credit-card', label: t('scenario1.productLabels.lines.credit-card') }
           ]}
           onChange={(value) => updateFilters({ productLine: value ?? '', page: 1 })}
         />
         <Select
           value={filters.status || undefined}
           allowClear
-          aria-label={t('pages.productLabels.statusFilter')}
-          placeholder={t('pages.productLabels.allStatuses')}
+          aria-label={t('scenario1.productLabels.statusFilter')}
+          placeholder={t('scenario1.productLabels.allStatuses')}
           options={[
-            { value: 'active', label: t('pages.productLabels.statuses.active') },
-            { value: 'inactive', label: t('pages.productLabels.statuses.inactive') }
+            { value: 'active', label: t('scenario1.productLabels.statuses.active') },
+            { value: 'inactive', label: t('scenario1.productLabels.statuses.inactive') }
           ]}
           onChange={(value) => updateFilters({ status: value ?? '', page: 1 })}
         />
@@ -113,19 +113,19 @@ export function ProductLabelsListPage() {
           dataSource={pageItems}
           columns={columns}
           scroll={{ x: 720 }}
-          locale={{ emptyText: <Empty description={t('pages.productLabels.empty')} /> }}
+          locale={{ emptyText: <Empty description={t('scenario1.productLabels.empty')} /> }}
           pagination={{
             current: currentPage,
             pageSize: PRODUCT_LABEL_PAGE_SIZE,
             total: filtered.length,
             showSizeChanger: false,
-            showTotal: (total, range) => t('pages.productLabels.range', { from: range[0], to: range[1], total }),
+            showTotal: (total, range) => t('scenario1.productLabels.range', { from: range[0], to: range[1], total }),
             onChange: (page) => updateFilters({ page }, false)
           }}
         />
       </div>
       <span className={styles.srOnly} aria-live="polite" aria-atomic="true">
-        {t('pages.productLabels.resultCount', { count: filtered.length })}
+        {t('scenario1.productLabels.resultCount', { count: filtered.length })}
       </span>
       <Outlet />
     </section>

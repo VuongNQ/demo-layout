@@ -18,7 +18,11 @@
 .prototype { padding: 4px 8px; border-radius: 4px; background: var(--cg-subtle); color: var(--cg-text-secondary); font-size: 12px; font-weight: 500; }
 .main { max-width: 1280px; margin: 0 auto; padding: 28px 32px 64px; }
 .breadcrumb { margin-bottom: 20px; color: var(--cg-text-secondary); font-size: 12px; line-height: 16px; }
-.breadcrumb span { margin: 0 8px; }
+.breadcrumb ol { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin: 0; padding: 0; list-style: none; }
+.breadcrumb li { min-width: 0; overflow-wrap: anywhere; }
+.breadcrumb li + li::before { content: "/"; margin: 0 8px; color: var(--cg-muted); }
+.breadcrumb a { color: inherit; }
+.breadcrumb a:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .pageHeader { margin-bottom: 28px; }
 .pageHeader h1 { margin: 0 0 4px; font-size: 24px; line-height: 32px; font-weight: 600; }
 .pageHeader p { margin: 0; color: var(--cg-text-secondary); font-size: 14px; line-height: 20px; }

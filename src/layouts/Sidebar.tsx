@@ -13,7 +13,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { menuTree, type MenuNode } from '@/menu/menu-tree';
-import { menuTranslationKeys, resolveClaudeListContext } from '@/claude/navigation/menu-meta';
+import { menuTranslationKeys } from '@/claude/navigation/menu-meta';
 import { useCurrentUser } from '@/hooks/use-current-user.hook';
 import type { ItemType } from 'antd/es/menu/interface';
 import { DevPanel } from './DevPanel';
@@ -73,7 +73,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
         mode="inline"
         inlineCollapsed={collapsed}
         className={styles.menu}
-        selectedKeys={[resolveClaudeListContext(location.pathname)]}
+        selectedKeys={[location.pathname]}
         defaultOpenKeys={['products', 'offer-management', 'system']}
         items={items}
         onClick={({ key }) => {

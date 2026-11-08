@@ -1,9 +1,9 @@
 import { useRef } from 'react';
 import { ConfigProvider, Spin } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { NavLink, Outlet, useLocation, useNavigation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigation } from 'react-router-dom';
 import { chatgptMenuGroups, chatgptMenuItem } from '../navigation/menu-meta';
-import { chatgptPath } from '../routes/route-meta';
+import { chatgptRouteMeta, type ChatGPTRouteId } from '../routes/route-meta';
 import { chatgptCssVars, chatgptTheme } from '../theme/chatgptTheme';
 import { PlatformLinks } from '@/routes/PlatformLinks';
 import styles from './ChatGPTLayout.module.scss';
@@ -13,7 +13,19 @@ export function ChatGPTLayout() {
   const root = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
   const navigation = useNavigation();
-  const pageId = pathname === chatgptPath('showcase') ? 'showcase' : 'overview';
+  const matchedRoute = (Object.keys(chatgptRouteMeta) as ChatGPTRouteId[])
+    .map((id) => chatgptRouteMeta[id])
+    .filter((route) => {
+      const pattern = route.relativePath
+        ? new RegExp(`^/chatgpt/${route.relativePath.replace(/:[^/]+/g, '[^/]+')}/?$`)
+        : /^\/chatgpt\/?$/;
+      return pattern.test(pathname);
+    })
+    .sort((a, b) => b.relativePath.length - a.relativePath.length)[0] ?? chatgptRouteMeta.overview;
+  const pageId = matchedRoute.id;
+  const menuId = matchedRoute.menuParent ?? pageId;
+  const parentRoute = matchedRoute.menuParent ? chatgptRouteMeta[matchedRoute.menuParent] : undefined;
+  const hasShellHeader = pageId === 'overview' || pageId === 'showcase';
 
   return (
     <div className={styles.root} style={chatgptCssVars} ref={root}>
@@ -28,10 +40,16 @@ export function ChatGPTLayout() {
             <nav aria-label={t('navigation:primary')}>
               {chatgptMenuGroups.map((group) => (
                 <div className={styles.group} key={group.label}>
-                  <div className={styles.groupLabel}>{group.items[0] === 'overview' ? t('chatgpt:operations') : t('chatgpt:designSystem')}</div>
+                  <div className={styles.groupLabel}>{t(`chatgpt:${group.label}`)}</div>
                   {group.items.map((id) => {
                     const item = chatgptMenuItem(id);
-                    return <NavLink end key={id} to={item.path} className={({ isActive }) => `${styles.navLink} ${isActive ? styles.active : ''}`}>{t(`chatgpt:${id}`)}</NavLink>;
+                    return <NavLink
+                      end
+                      key={id}
+                      to={item.path}
+                      aria-current={pageId === id ? 'page' : id === menuId && pageId !== id ? 'location' : undefined}
+                      className={({ isActive }) => `${styles.navLink} ${id === menuId || isActive ? styles.active : ''}`}
+                    >{t(`chatgpt:${id}`)}</NavLink>;
                   })}
                 </div>
               ))}
@@ -41,8 +59,14 @@ export function ChatGPTLayout() {
           <div className={styles.mainColumn}>
             <header className={styles.topbar}><span>{t('chatgpt:workspaceTitle')}</span><PlatformLinks /><span className={styles.prototype}>{t('common:prototype', { ns: 'common' })}</span></header>
             <main id="chatgpt-main" className={styles.main} tabIndex={-1}>
-              <nav className={styles.breadcrumb} aria-label={t('navigation:breadcrumb')}>{t('navigation:workspace')} <span aria-hidden="true">/</span> {t(`chatgpt:${pageId}`)}</nav>
-              <div className={styles.pageHeader}><h1>{t(pageId === 'overview' ? 'overviewTitle' : 'showcaseTitle')}</h1><p>{t(pageId === 'overview' ? 'overviewDescription' : 'showcaseDescription')}</p></div>
+              <nav className={styles.breadcrumb} aria-label={t('navigation:breadcrumb')}>
+                <ol>
+                  <li><Link to="/chatgpt">{t('navigation:workspace')}</Link></li>
+                  {parentRoute && <li><Link to={chatgptMenuItem(parentRoute.id).path}>{t(parentRoute.breadcrumb)}</Link></li>}
+                  <li><span aria-current="page">{t(matchedRoute.breadcrumb)}</span></li>
+                </ol>
+              </nav>
+              {hasShellHeader && <div className={styles.pageHeader}><h1>{t(matchedRoute.title)}</h1><p>{t(pageId === 'overview' ? 'overviewDescription' : 'showcaseDescription')}</p></div>}
               {navigation.state !== 'idle' && <div className={styles.pending} role="status"><Spin size="small" /> {t('common:loading', { ns: 'common' })}</div>}
               <Outlet />
             </main>

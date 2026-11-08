@@ -1,6 +1,6 @@
 export type ClaudeRouteId =
   | 'offerTypes' | 'offerTypeCreate' | 'offerTypeDetail' | 'offerTypeEdit'
-  | 'productSync' | 'productSettings' | 'productSettingsEdit' | 'productLabels' | 'productLabelDetail'
+  | 'productSync' | 'productSettings' | 'productSettingsEdit'
   | 'backgroundLocks' | 'backgroundLockDetail' | 'fees' | 'feesEdit'
   | 'promotions' | 'promotionCreate' | 'promotionEdit'
   | 'promotionTypes' | 'promotionTypeCreate' | 'promotionTypeDetail'
@@ -29,8 +29,6 @@ export const claudeRouteMeta: Record<ClaudeRouteId, ClaudeRouteMeta> = {
   productSync: { id: 'productSync', relativePath: 'product-sync', title: 'Đồng bộ sản phẩm', navigationGroup: 'products', menuVisible: true },
   productSettings: { id: 'productSettings', relativePath: 'product-settings', title: 'Cài đặt sản phẩm', navigationGroup: 'products', menuVisible: true },
   productSettingsEdit: { id: 'productSettingsEdit', relativePath: 'product-settings/:id', title: 'Sửa cài đặt sản phẩm', menuVisible: false },
-  productLabels: { id: 'productLabels', relativePath: 'product-labels', title: 'Nhãn sản phẩm', navigationGroup: 'products', breadcrumbLabel: 'Nhãn sản phẩm', menuVisible: true },
-  productLabelDetail: { id: 'productLabelDetail', relativePath: 'product-labels/:id', title: 'Chi tiết nhãn sản phẩm', menuVisible: false },
   backgroundLocks: { id: 'backgroundLocks', relativePath: 'background-locks', title: 'Cài đặt ảnh nền', navigationGroup: 'system', menuVisible: true },
   backgroundLockDetail: { id: 'backgroundLockDetail', relativePath: 'background-locks/:id', title: 'Sửa cài đặt ảnh nền', menuVisible: false },
   fees: { id: 'fees', relativePath: 'fees', title: 'Biểu phí', navigationGroup: 'products', menuVisible: true },
