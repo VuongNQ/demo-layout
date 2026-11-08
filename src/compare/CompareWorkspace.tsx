@@ -20,7 +20,7 @@ function DestinationCard({ platform, destination, currentUrl, pilotLinks }: { pl
   const { t } = useTranslation(['common', 'compare']);
   const translatedPlatform = platform === 'Claude' ? t('common:claude') : t('common:chatgpt');
   return (
-    <section className={styles.destination} aria-label={t('destinationLabel', { platform: translatedPlatform })}>
+    <section className={styles.destination} aria-label={t('compare:destinationLabel', { platform: translatedPlatform })}>
       <h3>{translatedPlatform}</h3>
       {pilotLinks ? (
         <>
@@ -30,9 +30,9 @@ function DestinationCard({ platform, destination, currentUrl, pilotLinks }: { pl
           </ul>
         </>
       ) : (
-        <p>{destination.availability === 'available' ? <Link to={destination.url}>{t('openScreen', { platform: translatedPlatform })}</Link> : <code>{destination.url}</code>} <span className={styles.availability}>{t(`common:${destination.availability}`)}</span></p>
+        <p>{destination.availability === 'available' ? <Link to={destination.url}>{t('compare:openScreen', { platform: translatedPlatform })}</Link> : <code>{destination.url}</code>} <span className={styles.availability}>{t(`common:${destination.availability}`)}</span></p>
       )}
-      {currentUrl ? <p>{t('legacyUrl')}: <Link to={currentUrl}>{currentUrl}</Link></p> : destination.availability !== 'available' ? <p>{t('noChatgptScreen')}</p> : null}
+      {currentUrl ? <p>{t('compare:legacyUrl')}: <Link to={currentUrl}>{currentUrl}</Link></p> : destination.availability !== 'available' ? <p>{t('compare:noChatgptScreen')}</p> : null}
     </section>
   );
 }

@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { ConfigProvider, Spin } from 'antd';
+import { App as AntdApp, ConfigProvider, Spin } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useLocation, useNavigation } from 'react-router-dom';
 import { chatgptMenuGroups, chatgptMenuItem } from '../navigation/menu-meta';
@@ -31,8 +31,16 @@ export function ChatGPTLayout() {
     <div className={styles.root} style={chatgptCssVars} ref={root}>
       <ConfigProvider
         theme={chatgptTheme}
-        getPopupContainer={(trigger) => trigger?.parentElement ?? root.current ?? document.body}
+        getPopupContainer={(trigger) => {
+          // AntD Drawer asks this callback to resolve its container from body.
+          // Using body's parent would portal an element under <html>.
+          if (!trigger || trigger === document.body || trigger === document.documentElement) {
+            return root.current ?? document.body;
+          }
+          return trigger.parentElement ?? root.current ?? document.body;
+        }}
       >
+        <AntdApp>
         <a className={styles.skip} href="#chatgpt-main">{t('chatgpt:skip')}</a>
         <div className={styles.frame}>
           <aside className={styles.sidebar} aria-label={t('chatgpt:primaryNavigation')}>
@@ -72,6 +80,7 @@ export function ChatGPTLayout() {
             </main>
           </div>
         </div>
+        </AntdApp>
       </ConfigProvider>
     </div>
   );

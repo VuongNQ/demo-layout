@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Alert, Button, Form, Modal, Result, Skeleton, Space, Typography, message } from 'antd';
+import { Alert, App as AntdApp, Button, Form, Modal, Result, Skeleton, Space, Typography } from 'antd';
 import { useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { chatgptPath } from '@/chatgpt/routes/route-meta';
@@ -28,6 +28,7 @@ function PromotionFullPageSkeleton({ title }: { title: string }) {
 }
 
 export function PromotionFullPage({ mode }: Props) {
+  const { message } = AntdApp.useApp();
   const { t } = useTranslation('chatgpt');
   const { id } = useParams<{ id: string }>();
   const location = useLocation();

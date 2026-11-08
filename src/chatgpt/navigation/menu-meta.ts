@@ -3,6 +3,7 @@ import { chatgptPath, chatgptRouteMeta, type ChatGPTRouteId } from '../routes/ro
 export const chatgptMenuGroups: { label: string; items: ChatGPTRouteId[] }[] = [
   { label: 'operations', items: ['overview'] },
   { label: 'products', items: ['productLabels', 'promotionTypes', 'promotions'] },
+  { label: 'experiments', items: ['unsavedChanges', 'reorderPagination', 'tabsVsAnchor'] },
   { label: 'designSystem', items: ['showcase'] }
 ];
 

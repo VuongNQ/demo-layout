@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Alert, Button, Drawer, Form, Modal, Result, Skeleton, Space, Typography, message } from 'antd';
+import { Alert, App as AntdApp, Button, Drawer, Form, Result, Skeleton, Space, Typography } from 'antd';
 import { useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { chatgptPath } from '@/chatgpt/routes/route-meta';
@@ -19,6 +19,7 @@ function getFormValues(item: { name: string; code: string; status: PromotionType
 // Matches the real repo's "view/edit drawer" shape for promotion-type —
 // no delete action, status is toggled from the list (see PromotionTypesListPage).
 export function PromotionTypeDrawerRoute() {
+  const { message, modal } = AntdApp.useApp();
   const { t } = useTranslation('chatgpt');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -72,7 +73,7 @@ export function PromotionTypeDrawerRoute() {
       void message.info(t('pages.promotionType.saveInProgress'));
       return;
     }
-    const confirmation = Modal.confirm({
+    const confirmation = modal.confirm({
       title: t('pages.promotionType.unsavedTitle'),
       content: t('pages.promotionType.unsavedDescription'),
       okText: t('pages.promotionType.discard'),
@@ -86,7 +87,7 @@ export function PromotionTypeDrawerRoute() {
       onCancel: () => blocker.reset?.()
     });
     return () => confirmation.destroy();
-  }, [blocker.location?.key, blocker.state, isSaving, t]);
+  }, [blocker.location?.key, blocker.state, isSaving, modal, message, t]);
 
   useEffect(() => {
     if (!isDirty) return;

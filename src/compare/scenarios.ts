@@ -42,7 +42,7 @@ export const scenarios: Scenario[] = [
     steps: ['Open the local drawer and type a draft.', 'Try each close path and note the event log.', 'Repeat in the route-bound drawer.', 'Repeat the same exit paths in ChatGPT when available.'],
     claude: { url: '/claude/experiments/unsaved-changes', availability: 'available' },
     claudeCurrentUrl: '/experiments/unsaved-changes',
-    chatgpt: { url: '/chatgpt/experiments/unsaved-changes', availability: 'unavailable' },
+    chatgpt: { url: '/chatgpt/experiments/unsaved-changes', availability: 'available' },
     criteria: [...common, { id: 'exit-paths', label: 'Exit path coverage', check: 'Do Cancel, X, mask, Escape, Back, link and refresh behave consistently?' }, { id: 'focus', label: 'Focus return', check: 'Does focus return to a useful control after a closed drawer?' }],
     openQuestions: ['Which exits require a prompt?', 'Is draft recovery or autosave desired?']
   },
@@ -53,7 +53,7 @@ export const scenarios: Scenario[] = [
     steps: ['Try page-local drag on page 1 and inspect page 2.', 'Try all-item sort mode and its Save action.', 'Try direct position entry.', 'Repeat comparable actions in ChatGPT when available.'],
     claude: { url: '/claude/experiments/reorder-pagination', availability: 'available' },
     claudeCurrentUrl: '/experiments/reorder-pagination',
-    chatgpt: { url: '/chatgpt/experiments/reorder-pagination', availability: 'unavailable' },
+    chatgpt: { url: '/chatgpt/experiments/reorder-pagination', availability: 'available' },
     criteria: [...common, { id: 'cross-page', label: 'Cross-page accuracy', check: 'Can an item move beyond the current page and land at the intended rank?' }, { id: 'save-feedback', label: 'Save and conflict feedback', check: 'Is the pending and committed order visible, including a stale-order failure?' }],
     openQuestions: ['Should reorder semantics be universal or list-specific?', 'What is the keyboard alternative?']
   },
@@ -64,7 +64,7 @@ export const scenarios: Scenario[] = [
     steps: ['Leave the prefilled invalid value untouched.', 'Save in the Tabs variant and locate the error.', 'Reset, then save in the section and anchor variant.', 'Repeat with ChatGPT when available.'],
     claude: { url: '/claude/experiments/tabs-vs-anchor', availability: 'available' },
     claudeCurrentUrl: '/experiments/tabs-vs-anchor',
-    chatgpt: { url: '/chatgpt/experiments/tabs-vs-anchor', availability: 'unavailable' },
+    chatgpt: { url: '/chatgpt/experiments/tabs-vs-anchor', availability: 'available' },
     criteria: [...common, { id: 'error-discovery', label: 'Error discovery', check: 'Is the final-group error named and visible after Save?' }, { id: 'error-focus', label: 'Error focus', check: 'Can summary or navigation move focus to the invalid field?' }],
     openQuestions: ['Should tabs be limited to non-form content?', 'What summary and focus behavior is required?']
   },
@@ -75,7 +75,7 @@ export const scenarios: Scenario[] = [
     steps: ['Open the fictional product settings record.', 'Change a field near the top and another near the bottom.', 'Inspect the top contextual bar and discard behavior.', 'Compare with ChatGPT save placement when available.'],
     claude: { url: '/claude/product-settings/product-setting-1', availability: 'available' },
     claudeCurrentUrl: '/product-settings/product-setting-1',
-    chatgpt: { url: '/chatgpt/product-settings/product-setting-1', availability: 'unavailable' },
+    chatgpt: { url: '/chatgpt/product-settings/product-setting-1', availability: 'available' },
     criteria: [...common, { id: 'action-reach', label: 'Action reachability', check: 'Are Save and Discard reachable throughout a long form?' }, { id: 'dirty-state', label: 'Dirty and save state', check: 'Are changed, saving, saved and failed states clear?' }],
     openQuestions: ['Top bar, footer or section action?', 'Should save confirmation vary by action risk?']
   }

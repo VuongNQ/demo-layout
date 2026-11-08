@@ -27,6 +27,15 @@ export const chatgptRoutes: RouteObject[] = [{
     },
     { path: chatgptRouteMeta.promotions.relativePath, errorElement: <ChatGPTRouteError />, lazy: async () => ({ Component: (await import('../features/promotions/PromotionsListPage')).PromotionsListPage }) },
     { path: chatgptRouteMeta.promotionCreate.relativePath, errorElement: <ChatGPTRouteError />, lazy: async () => ({ Component: (await import('../features/promotions/PromotionCreatePage')).PromotionCreatePage }) },
-    { path: chatgptRouteMeta.promotionEdit.relativePath, errorElement: <ChatGPTRouteError />, lazy: async () => ({ Component: (await import('../features/promotions/PromotionEditPage')).PromotionEditPage }) }
+    { path: chatgptRouteMeta.promotionEdit.relativePath, errorElement: <ChatGPTRouteError />, lazy: async () => ({ Component: (await import('../features/promotions/PromotionEditPage')).PromotionEditPage }) },
+    {
+      path: chatgptRouteMeta.unsavedChanges.relativePath,
+      errorElement: <ChatGPTRouteError />,
+      lazy: async () => ({ Component: (await import('../features/scenario2/UnsavedChangesPage')).UnsavedChangesPage }),
+      children: [{ path: ':id', errorElement: <ChatGPTRouteError />, lazy: async () => ({ Component: (await import('../features/scenario2/UnsavedChangesDrawerRoute')).UnsavedChangesDrawerRoute }) }]
+    },
+    { path: chatgptRouteMeta.reorderPagination.relativePath, errorElement: <ChatGPTRouteError />, lazy: async () => ({ Component: (await import('../features/scenario3/ReorderPaginationPage')).ReorderPaginationPage }) },
+    { path: chatgptRouteMeta.tabsVsAnchor.relativePath, errorElement: <ChatGPTRouteError />, lazy: async () => ({ Component: (await import('../features/scenario4/TabsVsAnchorPage')).TabsVsAnchorPage }) },
+    { path: chatgptRouteMeta.productSettings.relativePath, errorElement: <ChatGPTRouteError />, lazy: async () => ({ Component: (await import('../features/scenario5/ProductSettingsPage')).ProductSettingsPage }) }
   ]
 }];

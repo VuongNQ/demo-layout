@@ -71,7 +71,6 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
     <div className={styles.root}>
       <Menu
         mode="inline"
-        inlineCollapsed={collapsed}
         className={styles.menu}
         selectedKeys={[location.pathname]}
         defaultOpenKeys={['products', 'offer-management', 'system']}
