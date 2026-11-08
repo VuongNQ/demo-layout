@@ -1,4 +1,6 @@
+import { claudePath } from '@/claude/routes/route-meta';
 import { Drawer, Form, Button, Space, Skeleton } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { OfferTypeForm, type OfferTypeFormValues } from './OfferTypeForm';
 import {
@@ -49,12 +51,13 @@ const EMPTY_INITIAL_VALUES: OfferTypeFormValues = {
 };
 
 // Substrate A. The Drawer's open/close state is bound to the route
-// (/offer-types/:id and /offer-types/create are child routes of
-// /offer-types), so closing it is a real navigation — closing via the X
-// button, the mask, or Escape all call AntD's onClose, which this routes
-// through `navigate(-1)`. Experiment 1 adds the unsaved-changes guard on
+// (/claude/offer-types/:id and /claude/offer-types/create are child routes of
+// /claude/offer-types), so closing it is a real navigation — closing via the X
+// button, the mask, or Escape all call AntD's onClose, which returns to the list.
+// Experiment 1 adds the unsaved-changes guard on
 // top of this to see whether it actually fires on each of those paths.
 export function OfferTypeDrawerRoute() {
+  const { t } = useTranslation('claude');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const isCreate = id === undefined;
@@ -64,7 +67,7 @@ export function OfferTypeDrawerRoute() {
   const [form] = Form.useForm<OfferTypeFormValues>();
 
   function handleClose() {
-    navigate('/offer-types');
+    navigate(claudePath('offerTypes'));
   }
 
   async function handleSave() {
@@ -80,22 +83,22 @@ export function OfferTypeDrawerRoute() {
   return (
     <Drawer
       open
-      title={isCreate ? 'Tạo loại ưu đãi' : `Cài đặt: ${offerType?.name ?? ''}`}
+      title={isCreate ? t('offer.create') : t('offer.settings', { name: offerType?.name ?? '' })}
       width={480}
       onClose={handleClose}
       destroyOnClose
       extra={
         !isCreate && (
-          <Button type="link" onClick={() => navigate(`/offer-types/${id}/edit`)}>
-            Mở toàn trang
+          <Button type="link" onClick={() => navigate(claudePath('offerTypeEdit', { id }))}>
+            {t('offer.fullPage')}
           </Button>
         )
       }
       footer={
         <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={handleClose}>Hủy</Button>
+          <Button onClick={handleClose}>{t('offer.cancel')}</Button>
           <Button type="primary" loading={createMutation.isPending || updateMutation.isPending} onClick={() => void handleSave()}>
-            Lưu
+            {t('offer.save')}
           </Button>
         </Space>
       }

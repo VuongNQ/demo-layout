@@ -1,0 +1,23 @@
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.control select {
+  min-width: 112px;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: inherit;
+  color: inherit;
+  font: inherit;
+}
+
+.control select:focus-visible {
+  outline: 3px solid #1d4ed8;
+  outline-offset: 2px;
+}

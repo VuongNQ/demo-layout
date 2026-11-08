@@ -1,9 +1,12 @@
+import { claudePath } from '@/claude/routes/route-meta';
 import { Table, Tag } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useProductSettingsListQuery } from './product-settings.queries.hook';
 import type { ProductSettings } from './demo-product-settings-data';
 
 export function ProductSettingsListPage() {
+  const { t } = useTranslation('claude');
   const { data: items = [], isLoading } = useProductSettingsListQuery();
 
   return (
@@ -13,21 +16,21 @@ export function ProductSettingsListPage() {
       dataSource={items}
       pagination={false}
       columns={[
-        { title: 'Tên sản phẩm', dataIndex: 'name' },
-        { title: 'Mã', dataIndex: 'code' },
+        { title: t('productSettings.productName'), dataIndex: 'name' },
+        { title: t('code'), dataIndex: 'code' },
         {
-          title: 'Trạng thái',
+          title: t('status'),
           dataIndex: 'status',
           render: (status: ProductSettings['status']) => (
-            <Tag color={status === 'active' ? 'green' : status === 'draft' ? 'gold' : 'default'}>{status}</Tag>
+            <Tag color={status === 'active' ? 'green' : status === 'draft' ? 'gold' : 'default'}>{t(`offer.${status}`)}</Tag>
           )
         },
-        { title: 'Đối tượng', dataIndex: 'customerType', render: (v: string) => (v === 'individual' ? 'Cá nhân' : 'Doanh nghiệp') },
-        { title: 'Số bậc lãi suất', dataIndex: 'tiers', render: (tiers: unknown[]) => tiers.length },
+        { title: t('productSettings.audience'), dataIndex: 'customerType', render: (v: string) => t(`productSettings.${v}`) },
+        { title: t('productSettings.tierCount'), dataIndex: 'tiers', render: (tiers: unknown[]) => tiers.length },
         {
-          title: '',
+          title: t('actions'),
           key: 'actions',
-          render: (_, record) => <Link to={`/product-settings/${record.id}`}>Cài đặt</Link>
+          render: (_, record) => <Link to={claudePath('productSettingsEdit', { id: record.id })}>{t('productSettings.configure')}</Link>
         }
       ]}
     />

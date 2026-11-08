@@ -1,0 +1,31 @@
+# Design Patterns
+
+This page points to representative current examples and labels their scope. The source does not define one universal canonical page or CRUD template.
+
+## Decision vocabulary
+
+Use **APPROVED DECISION**, **CONFIRMED CURRENT IMPLEMENTATION**, **ADOPTED TARGET**, **CANDIDATE**, **LEGACY-COMPATIBILITY**, **NEEDS-TEAM-DECISION**, and **NOT VERIFIED** as defined in the [Design System index](README.md). Architecture examples can also be classified `target-compatible`, `legacy-compatible`, or `uncertain`, following [`.claude/rules/00-general.md`](../../.claude/rules/00-general.md#before-modifying-code) / [`.codex/rules/00-general.md`](../../.codex/rules/00-general.md#before-modifying-code). These labels describe different things: policy decision status versus an example's relationship to target architecture.
+
+## Source-backed pattern map
+
+| Pattern | Status | Current reference example and scope | Ownership and limitation |
+| --- | --- | --- | --- |
+| Feature-local business UI and state | **ADOPTED TARGET** for new/substantially changed work | Promotion Type owns its list/table and status mapping in `src/modules/products/promotion-management/promotion-type/components/PromotionTypeTableSection/index.tsx:32-35,44-55,66-69,121-127`. | Feature owns business values and labels. This is not a universal page contract. |
+| Ant Design form lifecycle with `FormLayout`/`FormRef` | **ADOPTED TARGET**; existing APIs are **LEGACY-COMPATIBILITY** | `FormLayout` accepts sidebar/form/footer/callback props and coordinates child refs and validation: `src/layouts/form.layout.tsx:22-44,50-72,99-109,119-162,164-230`. See [`.claude/rules/05-form.md`](../../.claude/rules/05-form.md) / [`.codex/rules/05-form.md`](../../.codex/rules/05-form.md). | Ant Design Form owns form state; the shell coordinates a multi-section workflow. Preserve existing consumer lifecycle contracts. |
+| Page shells separate from feature behavior | **ADOPTED TARGET** | Route tree selects `MasterLayout`, `MainLayout`, or `BasicLayout`: `src/routes/index.tsx:16-32`; details are in [Layouts](layouts.md). | Layouts own shared regions and shell state, not feature business logic. See component categories in [`.claude/rules/07-component.md`](../../.claude/rules/07-component.md#categories-and-placement) / [`.codex/rules/07-component.md`](../../.codex/rules/07-component.md#categories-and-placement). |
+| Shared presentation with feature-owned mapping | **CONFIRMED CURRENT IMPLEMENTATION**; **ADOPTED TARGET** for new UI with shared semantics | Promotion Type maps domain statuses to shared `StatusBadge` variants and localized labels: `src/modules/products/promotion-management/promotion-type/components/PromotionTypeTableSection/index.tsx:32-35,66-69,121-127`. Background Main does the same in `src/modules/system/theme-management/components/BackgroundMainTableSection/index.tsx:45-51,79-90,243-253`. | Shared primitive owns presentation variants; each feature retains domain interpretation and labels. These examples do not establish a global business mapping. |
+| New independent component styling | **ADOPTED TARGET** | New independent components use private colocated SCSS Modules and supported Ant Design tokens/APIs per [`.claude/rules/10-styling.md`](../../.claude/rules/10-styling.md#choose-the-styling-approach) / [`.codex/rules/10-styling.md`](../../.codex/rules/10-styling.md#choose-the-styling-approach) and [target architecture](../../.claude/ARCHITECTURE.md#20-architecture-decision-status) / [Codex architecture](../../.codex/knowledge/ARCHITECTURE.md#20-architecture-decision-status). | Existing Emotion, inline, global SCSS, and local literals remain **LEGACY-COMPATIBILITY** for normal maintenance. |
+| Feature-local token set | **CONFIRMED CURRENT IMPLEMENTATION**; exception status **NEEDS-TEAM-DECISION** | Scheme Sync defines color, font, spacing, and radius values in `src/modules/products/configuration/scheme-sync/scheme-sync.tokens.ts:1-41`. | Source proves local ownership and use, not an approved exception to the cross-application target. |
+| Feature CRUD composition | **CONFIRMED CURRENT IMPLEMENTATION**; universal pattern **NOT VERIFIED** | Promotion Type list/detail/create flows and Promotion list/detail have different route and drawer compositions. See current sources in `src/modules/products/promotion-management/` and module context `docs/modules/products/promotion-management/promotion.md:1-15`, `promotion-type.md:1-15`. | Examples differ in navigation and composition. No one-size CRUD layout is specified. |
+
+## Reuse and preservation
+
+The adopted reuse ladder starts with supported Ant Design APIs, then checks compatible repository and domain-shared components against their props, behavior, ownership, lifecycle, and consumers. New single-feature behavior stays feature-local; shared placement requires stable semantics and real consumers. See [`.claude/rules/07-component.md`](../../.claude/rules/07-component.md#rules) / [`.codex/rules/07-component.md`](../../.codex/rules/07-component.md#rules). Existing mixed or domain-aware components remain compatibility contracts; filename or visual similarity alone does not justify extraction.
+
+## Confirmed decisions and open items
+
+- **APPROVED DECISION:** Codex-specific guidance is owned by `AGENTS.md` and `.codex/`; Claude Code-specific guidance is owned by `CLAUDE.md` and `.claude/`. This page cites both profiles' equivalent rules side by side rather than favoring one.
+- **NEEDS-TEAM-DECISION:** `.codex/rules/10-styling.md` has an additional `## Design-system decisions for new Codex UI` section that `.claude/rules/10-styling.md` does not mirror. This page does not resolve whether that section's content should be ported to the Claude profile's rule file or left Codex-only.
+- **NEEDS-TEAM-DECISION:** Whether Scheme Sync typography and palette remain a product-specific exception under the adopted cross-application direction.
+- **CONFIRMED limitation:** The repository does not designate a universal canonical design-pattern example. References here are representative and scoped.
+- Color roles, typography scale, status semantics, and accessibility review direction are documented on [Color](color.md), [Typography](typography.md), and [Status](status.md).

@@ -1,0 +1,43 @@
+/* ChatGPT-owned Product Label list presentation. */
+.page {
+  min-width: 0;
+}
+
+.heading {
+  margin: 0 0 16px;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tableWrap {
+  min-width: 0;
+}
+
+.rowAction {
+  white-space: normal;
+  height: auto;
+  text-align: start;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 720px) {
+  .filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

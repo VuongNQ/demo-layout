@@ -1,5 +1,6 @@
 import { List, Select, Button, Space, Typography } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 
 export type ProductCatalogItem = { id: string; name: string };
 
@@ -18,6 +19,7 @@ type Props = {
 // everywhere a list can be reordered. Shared by Popular Loans and
 // Attractive Offer, which both "select/reorder assigned products".
 export function AssignedProductsEditor({ catalog, value, onChange }: Props) {
+  const { t } = useTranslation('claude');
   const catalogById = new Map(catalog.map((item) => [item.id, item.name]));
   const availableOptions = catalog.filter((item) => !value.includes(item.id)).map((item) => ({ value: item.id, label: item.name }));
 
@@ -38,19 +40,20 @@ export function AssignedProductsEditor({ catalog, value, onChange }: Props) {
       <List
         bordered
         dataSource={value}
-        locale={{ emptyText: 'Chưa gán sản phẩm nào' }}
+        locale={{ emptyText: t('pages.assigned.empty') }}
         renderItem={(id, index) => (
           <List.Item
             actions={[
-              <Button key="up" size="small" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={() => move(index, -1)} />,
+              <Button key="up" size="small" icon={<ArrowUpOutlined />} aria-label={t('pages.assigned.moveUp')} disabled={index === 0} onClick={() => move(index, -1)} />,
               <Button
                 key="down"
                 size="small"
                 icon={<ArrowDownOutlined />}
+                aria-label={t('pages.assigned.moveDown')}
                 disabled={index === value.length - 1}
                 onClick={() => move(index, 1)}
               />,
-              <Button key="remove" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(id)} />
+              <Button key="remove" size="small" danger icon={<DeleteOutlined />} aria-label={t('pages.assigned.remove')} onClick={() => remove(id)} />
             ]}
           >
             <Typography.Text>
@@ -61,7 +64,7 @@ export function AssignedProductsEditor({ catalog, value, onChange }: Props) {
       />
       <Select
         style={{ width: '100%' }}
-        placeholder="Thêm sản phẩm vào danh sách"
+        placeholder={t('pages.assigned.add')}
         options={availableOptions}
         value={null}
         onChange={(id: string) => onChange([...value, id])}

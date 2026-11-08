@@ -1,0 +1,71 @@
+.page {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding-bottom: 20px;
+}
+
+.saveBar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--chatgpt-border, #d1d5db);
+  border-radius: 8px;
+  background: var(--chatgpt-surface, #fff);
+  box-shadow: 0 2px 8px rgb(17 24 39 / 8%);
+}
+
+.saveBar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.heading,
+.sectionCard,
+.page :global(.ant-card) {
+  min-width: 0;
+}
+
+.heading h1 {
+  overflow-wrap: anywhere;
+}
+
+.sectionCard {
+  margin-top: 16px;
+}
+
+.listFields {
+  display: grid;
+  gap: 8px;
+}
+
+.bottomActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 600px) {
+  .saveBar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .saveBar > div,
+  .saveBar > :global(.ant-space) {
+    width: 100%;
+  }
+}

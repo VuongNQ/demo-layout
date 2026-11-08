@@ -1,5 +1,6 @@
 import { Form, Input, InputNumber, Select, Switch, Typography, type FormInstance } from 'antd';
 import type { OfferTypeFormValues } from '@/features/offer-type/OfferTypeForm';
+import { useTranslation } from 'react-i18next';
 
 type Props = {
   form: FormInstance<OfferTypeFormValues>;
@@ -13,6 +14,7 @@ type Props = {
 // unlike the Tabs version, where the field exists but the surrounding tab
 // panel is not the active one.
 export function OfferTypeFormSections({ form, initialValues }: Props) {
+  const { t } = useTranslation('claude');
   return (
     <Form<OfferTypeFormValues>
       form={form}
@@ -20,46 +22,46 @@ export function OfferTypeFormSections({ form, initialValues }: Props) {
       initialValues={initialValues}
       scrollToFirstError={{ behavior: 'smooth', block: 'center' }}
     >
-      <Form.Item name="name" label="Tên ưu đãi" rules={[{ required: true, message: 'Bắt buộc' }]}>
+      <Form.Item name="name" label={t('offer.name')} rules={[{ required: true, message: t('validation:required') }]}>
         <Input />
       </Form.Item>
-      <Form.Item name="status" label="Trạng thái" rules={[{ required: true }]}>
-        <Select options={[{ value: 'active', label: 'Active' }, { value: 'draft', label: 'Draft' }, { value: 'inactive', label: 'Inactive' }]} />
+      <Form.Item name="status" label={t('pages.experiments.status')} rules={[{ required: true, message: t('validation:required') }]}>
+        <Select options={[{ value: 'active', label: t('offer.active') }, { value: 'draft', label: t('offer.draft') }, { value: 'inactive', label: t('offer.inactive') }]} />
       </Form.Item>
 
       <Typography.Title id="section-general" level={5}>
-        Thông tin chung
+        {t('pages.experiments.general')}
       </Typography.Title>
-      <Form.Item name={['general', 'description']} label="Mô tả">
+      <Form.Item name={['general', 'description']} label={t('offer.description')}>
         <Input.TextArea rows={3} />
       </Form.Item>
-      <Form.Item name={['general', 'code']} label="Mã" rules={[{ required: true }]}>
+      <Form.Item name={['general', 'code']} label={t('offer.code')} rules={[{ required: true, message: t('validation:required') }]}>
         <Input />
       </Form.Item>
-      <Form.Item name={['general', 'discountPercent']} label="Giảm giá (%)">
+      <Form.Item name={['general', 'discountPercent']} label={t('pages.experiments.discount')}>
         <InputNumber min={0} max={100} style={{ width: '100%' }} />
       </Form.Item>
 
       <Typography.Title id="section-eligibility" level={5} style={{ marginTop: 32 }}>
-        Điều kiện áp dụng
+        {t('pages.experiments.eligibility')}
       </Typography.Title>
-      <Form.Item name={['eligibility', 'customerSegments']} label="Phân khúc khách hàng">
+      <Form.Item name={['eligibility', 'customerSegments']} label={t('offer.segments')}>
         <Select
           mode="multiple"
           options={['Khách hàng mới', 'Khách hàng VIP', 'Khách hàng doanh nghiệp', 'Khách hàng cá nhân'].map((v) => ({ value: v, label: v }))}
         />
       </Form.Item>
-      <Form.Item name={['eligibility', 'requiresApproval']} label="Cần phê duyệt" valuePropName="checked">
+      <Form.Item name={['eligibility', 'requiresApproval']} label={t('pages.experiments.requiresApproval')} valuePropName="checked">
         <Switch />
       </Form.Item>
-      <Form.Item name={['eligibility', 'maxRedemptions']} label="Số lần sử dụng tối đa">
+      <Form.Item name={['eligibility', 'maxRedemptions']} label={t('pages.experiments.maxRedemptions')}>
         <InputNumber min={0} style={{ width: '100%' }} />
       </Form.Item>
 
       <Typography.Title id="section-notification" level={5} style={{ marginTop: 32 }}>
-        Thông báo
+        {t('pages.experiments.notifications')}
       </Typography.Title>
-      <Form.Item name={['notification', 'notifyChannel']} label="Kênh thông báo">
+      <Form.Item name={['notification', 'notifyChannel']} label={t('offer.channel')}>
         <Select
           options={[
             { value: 'email', label: 'Email' },
@@ -69,19 +71,19 @@ export function OfferTypeFormSections({ form, initialValues }: Props) {
           ]}
         />
       </Form.Item>
-      <Form.Item name={['notification', 'ownerEmail']} label="Email chủ sở hữu">
+      <Form.Item name={['notification', 'ownerEmail']} label={t('offer.ownerEmail')}>
         <Input />
       </Form.Item>
       <Form.Item
         name={['notification', 'reminderDaysBefore']}
-        label="Số ngày nhắc trước"
+        label={t('pages.experiments.reminderDays')}
         rules={[
           {
             validator: async (_, value) => {
               // Same deliberate validation trap as OfferTypeForm's Tabs
               // version, placed in the LAST section here too, so both
               // sides of the comparison fail on the same field.
-              if (value > 30) throw new Error('Không được nhắc trước quá 30 ngày');
+              if (value > 30) throw new Error(t('offer.reminderError'));
             }
           }
         ]}

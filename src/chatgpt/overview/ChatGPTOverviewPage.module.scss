@@ -1,0 +1,6 @@
+.stack { display: grid; gap: 20px; }
+.card { border-color: var(--cg-border); }
+.card p { color: var(--cg-text-secondary); }
+.stateGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.state { display: flex; align-items: center; gap: 12px; min-height: 90px; }
+@media (max-width: 900px) { .stateGrid { grid-template-columns: 1fr; } }

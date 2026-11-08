@@ -1,11 +1,14 @@
+import { claudePath } from '@/claude/routes/route-meta';
 import { useState } from 'react';
 import { Form, Skeleton, Typography, message, Button, Space, Table } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FeesForm, type FeesFormValues } from './FeesForm';
 import { useFeeDetailQuery, useUpdateFeeMutation } from './fees.queries.hook';
 import { ContextualSaveBar, ContextualSaveBarSpacer } from '@/components/ContextualSaveBar';
+import { useTranslation } from 'react-i18next';
 
 export function FeesEditPage() {
+  const { t } = useTranslation('claude');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: item, isLoading } = useFeeDetailQuery(id);
@@ -18,7 +21,7 @@ export function FeesEditPage() {
     const values = await form.validateFields();
     await updateMutation.mutateAsync({ id, patch: values });
     setIsDirty(false);
-    message.success('Đã lưu.');
+    message.success(t('productSettings.saveSuccess'));
   }
 
   function handleDiscard() {
@@ -35,21 +38,21 @@ export function FeesEditPage() {
       <ContextualSaveBar
         visible={isDirty}
         saving={updateMutation.isPending}
-        label={`Có thay đổi chưa lưu — ${item.name}`}
+        label={t('productSettings.dirty', { name: item.name })}
         onSave={() => void handleSave()}
         onDiscard={handleDiscard}
       />
       <ContextualSaveBarSpacer visible={isDirty} />
       <Space align="center" style={{ marginBottom: 8 }}>
-        <Button type="link" disabled={isDirty} onClick={() => navigate('/fees')}>
-          ← Quay lại danh sách
+        <Button type="link" disabled={isDirty} onClick={() => navigate(claudePath('fees'))}>
+          {t('pages.forms.back')}
         </Button>
       </Space>
-      <Typography.Title level={4}>Biểu phí: {item.name}</Typography.Title>
+      <Typography.Title level={4}>{t('pages.forms.feeTitle', { name: item.name })}</Typography.Title>
       <FeesForm form={form} initialValues={item} onValuesChange={() => setIsDirty(true)} />
 
       <Typography.Title level={5} style={{ marginTop: 24 }}>
-        Lịch sử thay đổi
+        {t('pages.requiredInfo.history')}
       </Typography.Title>
       <Table
         rowKey="id"
@@ -57,9 +60,9 @@ export function FeesEditPage() {
         pagination={false}
         size="small"
         columns={[
-          { title: 'Thời gian', dataIndex: 'changedAt' },
-          { title: 'Người thực hiện', dataIndex: 'changedBy' },
-          { title: 'Hành động', dataIndex: 'action' }
+          { title: t('pages.requiredInfo.time'), dataIndex: 'changedAt' },
+          { title: t('pages.requiredInfo.actor'), dataIndex: 'changedBy' },
+          { title: t('pages.requiredInfo.action'), dataIndex: 'action' }
         ]}
       />
     </>

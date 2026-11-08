@@ -7,7 +7,9 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build && node scripts/spa-fallback.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "verify:scenarios2-5": "node scripts/verify-chatgpt-scenarios-2-5.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "5.5.1",
@@ -17,11 +19,14 @@
     "@tanstack/react-query": "5.62.7",
     "antd": "5.22.2",
     "dayjs": "^1.11.13",
+    "i18next": "^27.0.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "react-i18next": "^18.0.0",
     "react-router-dom": "7.1.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "4.3.4",
     "@types/node": "^22.10.2",
     "@types/react": "18.3.12",

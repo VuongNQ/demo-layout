@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hướng dẫn tạo License Notices và SBOM — HDS Admin</title>
+<style>
+:root{color-scheme:light;--ink:#192d40;--muted:#546779;--line:#dce5ec;--accent:#096b74}
+*{box-sizing:border-box}body{margin:0;background:#f3f6f9;color:var(--ink);font:16px/1.7 system-ui,-apple-system,"Segoe UI",sans-serif}main{max-width:1040px;margin:40px auto;padding:0 24px 48px}header{background:#153e50;color:white;padding:38px;border-radius:18px}header p{color:#d1e4ec;max-width:760px}h1{font-size:32px;line-height:1.25;margin:10px 0}h2{font-size:23px;margin:0 0 14px}h3{font-size:18px;margin:22px 0 8px}.eyebrow{font-size:12px;letter-spacing:2px;text-transform:uppercase}section{background:white;padding:28px 32px;border:1px solid var(--line);border-radius:14px;margin-top:22px}p{margin:10px 0}a{color:var(--accent)}nav{display:flex;gap:10px 20px;flex-wrap:wrap;margin:20px 0}nav a{text-decoration:none;font-weight:600}pre{background:#122b3b;color:#e4f4ff;padding:18px 20px;border-radius:10px;overflow:auto;line-height:1.6;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}code{font-family:Consolas,"Courier New",monospace}p code,li code,td code{background:#edf3f6;padding:2px 5px;border-radius:4px;font-size:.9em}.note{background:#edf7f7;border-left:4px solid #14818a;padding:14px 18px;border-radius:5px;margin:18px 0}.attention{background:#fff8e9;border-left-color:#c68c27}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}th{background:#f0f5f8}.table-wrap{overflow:auto}li{margin:6px 0}.tag{display:inline-block;font-size:12px;padding:2px 9px;border-radius:20px;background:#e9f4f4;color:#096b74}footer{color:var(--muted);font-size:13px;margin-top:24px}.flow{padding:16px;background:#f0f5f8;border-radius:10px;font-family:Consolas,monospace;font-size:14px}button{background:#096b74;color:white;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;font:inherit}
+@media(max-width:640px){main{margin:16px auto;padding:0 12px 24px}header,section{padding:22px}h1{font-size:26px}table{min-width:560px}}
+@media print{body{background:white;font-size:11pt}main{margin:0;max-width:none;padding:0}header{background:white;color:#192d40;padding:0}header p{color:#546779}section{padding:18px 0;border:0;border-top:1px solid #ccc;border-radius:0}nav,button{display:none}pre{background:#f2f4f6;color:#192d40;border:1px solid #ddd;break-inside:avoid}h2,h3{break-after:avoid}tr{break-inside:avoid}}
+/* Persistent table of contents */
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{padding-left:270px}
+main{max-width:1100px;margin:32px auto}
+.sidebar{position:fixed;inset:0 auto 0 0;width:270px;margin:0;padding:28px 18px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;flex-wrap:nowrap;gap:5px;overflow-y:auto;z-index:20}
+.sidebar strong{padding:8px 12px;color:var(--muted);font-size:12px;letter-spacing:2px}
+.sidebar a{display:block;padding:9px 12px;font-size:14px;line-height:1.45;border-radius:8px;overflow-wrap:anywhere}
+.sidebar a:hover,.sidebar a:focus-visible{background:#e9f4f4;outline:2px solid #096b74;outline-offset:-2px}
+section[id],h3[id]{scroll-margin-top:24px}
+.script-code{white-space:pre;overflow-wrap:normal;tab-size:2}
+@media(max-width:900px){body{padding-left:0}.sidebar{position:sticky;inset:auto;top:0;width:100%;max-height:150px;padding:10px 14px;flex-direction:row;flex-wrap:wrap;gap:2px 6px;border-right:0;border-bottom:1px solid var(--line)}.sidebar strong{width:100%;padding:0 6px}.sidebar a{padding:5px 7px;font-size:12px}section[id],h3[id]{scroll-margin-top:168px}html{scroll-padding-top:0}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media print{body{padding-left:0}.sidebar{display:none}main{margin:0}.script-code{white-space:pre-wrap;overflow-wrap:anywhere;break-inside:auto}}
+</style>
+</head>
+<body>
+<nav class="sidebar" aria-label="Mục lục">
+<strong>MỤC LỤC</strong>
+<a href="#prepare">1. Chuẩn bị</a>
+<a href="#install">Cài đặt / chạy công cụ</a>
+<a href="#license-usage">Sử dụng license-checker</a>
+<a href="#steps">2. Các bước thực hiện</a>
+<a href="#quick">3. Lệnh tổng hợp</a>
+<a href="#outputs">4. File kết quả</a>
+<a href="#checks">5. Kiểm tra &amp; xử lý lỗi</a>
+<a href="#scripts">6. Nội dung các script</a>
+<a href="#script-license">enrich-license.cjs</a>
+<a href="#script-sbom">enrich-sbom.cjs</a>
+<a href="#script-sha">enrich-sbom-sha-256.cjs</a>
+</nav>
+<main>
+<header>
+<div class="eyebrow">HDS Admin Portal · Hướng dẫn thao tác</div>
+<h1>Tạo License Notices, SBOM và checksum SHA-256</h1>
+<p>Quy trình theo các lệnh đã chạy và ba script hiện có trong dự án. Thực hiện tại thư mục gốc bằng Git Bash trên Windows.</p>
+<span class="tag">Ngày biên soạn: 08/09/2026</span>
+</header>
+
+<section id="prepare">
+<h2>1. Chuẩn bị</h2>
+<ul>
+<li>Mở Git Bash tại thư mục chứa <code>package.json</code> và <code>package-lock.json</code>.</li>
+<li>Cài Node.js và npm phù hợp với dự án; <code>package.json</code> hiện yêu cầu Node.js ≥ 20. Công cụ chạy qua <code>npx</code> có thể có yêu cầu Node.js riêng.</li>
+<li>Đảm bảo <code>node_modules</code> đã được cài đặt thành công và phản ánh dependency cần lập báo cáo. Nếu lần cài trước bị gián đoạn, hoàn tất cài đặt trước khi xuất báo cáo.</li>
+<li>Chuẩn bị ba script: <code>enrich-license.cjs</code>, <code>enrich-sbom.cjs</code> và <code>enrich-sbom-sha-256.cjs</code>.</li>
+<li>Cần kết nối registry khi <code>npx</code> phải tải công cụ và khi lấy dữ liệu <code>npm audit</code>.</li>
+</ul>
+<pre><code>cd '/d/SourceCode/[PROJECT_REACTJS]/001-hds-admin'
+node --version
+npm --version</code></pre>
+<div class="note">Các lệnh bên dưới ghi đè file báo cáo cùng tên ở thư mục gốc. Tài liệu HTML này nằm trong <code>_tmp</code>; không chạy các script từ trong <code>_tmp</code> vì chúng đọc file theo thư mục làm việc hiện tại.</div>
+</section>
+<section id="install">
+<h2>Cài đặt / chạy công cụ bằng npx</h2>
+<p>Tại thư mục gốc dự án, chạy lần lượt:</p>
+<pre><code class="language-bash">npx license-checker
+npx @cyclonedx/cyclonedx-npm</code></pre>
+<p><code>npx</code> gọi công cụ để chạy ngay; nếu chưa có công cụ phù hợp, npm có thể hỏi tải package. Kiểm tra tên và phiên bản rồi nhập <code>y</code>. Đây là thao tác chạy công cụ, không phải lệnh thêm dependency vào <code>package.json</code>.</p>
+<p>Hai lệnh trên chưa chỉ định file đầu ra. Để tạo các file phục vụ quy trình enrich, dùng các lệnh có <code>--json</code> và <code>--output-file</code> trong phần <a href="#steps">Các bước thực hiện</a>.</p>
+</section>
+<section id="license-usage">
+<h2>Hướng dẫn sử dụng license-checker</h2>
+<p>Chạy trong thư mục dự án đã cài dependency. Các ví dụ dưới đây phục vụ các mục đích riêng; không cần chạy tất cả.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Mục đích</th><th>Lệnh</th></tr></thead>
+<tbody>
+<tr><td>Xem thông tin giấy phép</td><td><code>npx license-checker</code></td></tr>
+<tr><td>Tổng hợp theo giấy phép</td><td><code>npx license-checker --summary</code></td></tr>
+<tr><td>Xuất JSON cho script enrich</td><td><code>npx license-checker --json &gt; licenses.base.json</code></td></tr>
+<tr><td>Chỉ lấy dependency production</td><td><code>npx license-checker --production --json &gt; licenses.base.json</code></td></tr>
+<tr><td>Xuất CSV để đối chiếu</td><td><code>npx license-checker --csv --out licenses.csv</code></td></tr>
+<tr><td>Tìm giấy phép chưa rõ hoặc được suy đoán</td><td><code>npx license-checker --onlyunknown</code></td></tr>
+<tr><td>Bỏ package đánh dấu private</td><td><code>npx license-checker --excludePrivatePackages --json &gt; licenses.base.json</code></td></tr>
+</tbody></table></div>
+<p>Chọn phạm vi báo cáo trước khi xuất JSON. Nếu dùng <code>--production</code>, chạy lại <code>node enrich-license.cjs</code> để cập nhật kết quả tương ứng.</p>
+<p>Nguồn tham khảo: <a href="https://www.npmjs.com/package/license-checker">Tài liệu license-checker — các tùy chọn CLI</a>.</p>
+</section>
+<section id="steps">
+<h2>2. Thực hiện theo thứ tự</h2>
+<h3>Bước 1 — Xuất thông tin giấy phép</h3>
+<pre><code>npx license-checker --json &gt; licenses.base.json</code></pre>
+<p>Tạo <code>licenses.base.json</code>, làm đầu vào cho script bổ sung nội dung giấy phép. Nếu <code>npx</code> hỏi cài công cụ, kiểm tra tên/phiên bản được hiển thị rồi nhập <code>y</code> để tiếp tục.</p>
+<h3>Bước 2 — Tạo thông báo thư viện bên thứ ba</h3>
+<pre><code>node enrich-license.cjs</code></pre>
+<p>Script đọc <code>licenses.base.json</code>, lấy toàn bộ nội dung file giấy phép vào <code>licenseText</code>, lấy dòng đầu tiên có chữ “copyright” vào <code>copyright</code>, rồi bỏ hai trường <code>path</code> và <code>licenseFile</code>.</p>
+<p>Kết quả: <code>THIRD_PARTY_NOTICES.json</code>. Terminal hiển thị <code>Done!</code>. Nếu không tìm thấy file giấy phép hoặc dòng copyright, trường tương ứng có thể rỗng.</p>
+<h3>Bước 3 — Tạo SBOM gốc</h3>
+<pre><code>npx @cyclonedx/cyclonedx-npm --output-file sbom.base.json --output-format JSON --omit dev --spec-version 1.5</code></pre>
+<p>Xuất <code>sbom.base.json</code> ở định dạng JSON, chọn CycloneDX 1.5 và bỏ dependency phát triển qua <code>--omit dev</code>.</p>
+<div class="note">Trong lần chạy đã ghi nhận, npx yêu cầu cài <code>@cyclonedx/cyclonedx-npm@6.0.1</code>. Muốn chỉ định đúng phiên bản đó khi chạy lại, dùng <code>npx @cyclonedx/cyclonedx-npm@6.0.1</code> với các tham số còn lại giữ nguyên.</div>
+<h3>Bước 4 — Xuất bản lockfile để đối chiếu <span class="tag">Tùy chọn</span></h3>
+<pre><code>node -e "require('fs').writeFileSync('lock.inspect.json', JSON.stringify(require('./package-lock.json'), null, 2))"</code></pre>
+<p>Tạo bản JSON được căn lề của <code>package-lock.json</code> để kiểm tra thủ công. <strong>Script enrich không đọc <code>lock.inspect.json</code></strong>; nó đọc trực tiếp <code>package-lock.json</code>.</p>
+<h3>Bước 5 — Lấy báo cáo audit</h3>
+<pre><code>npm audit --json &gt; audit.json</code></pre>
+<p>Tạo <code>audit.json</code> để bổ sung dữ liệu lỗ hổng. Kiểm tra đây là báo cáo hợp lệ trước khi chạy bước 6; lỗi kết nối hoặc registry cũng có thể được trả về dưới dạng JSON.</p>
+<div class="note attention">Lệnh audit có thể trả mã thoát khác 0 khi phát hiện lỗ hổng, dù file báo cáo đã được tạo. Vì vậy không nối toàn bộ quy trình bằng <code>&amp;&amp;</code> rồi mặc định mã thoát khác 0 luôn là lỗi xuất file.</div>
+<h3>Bước 6 — Bổ sung SBOM và tạo checksum</h3>
+<pre><code>node enrich-sbom.cjs</code></pre>
+<p>Script đọc <code>sbom.base.json</code>, <code>audit.json</code>, <code>package-lock.json</code>; bổ sung dữ liệu integrity và audit, ghi <code>sbom.json</code>, sau đó tính SHA-256 của chính file này.</p>
+<pre><code>SBOM enriched with SHA + audit data
+Created: sbom.json.sha256</code></pre>
+<h3>Bước 7 — Tạo lại checksum riêng <span class="tag">Tùy chọn</span></h3>
+<pre><code>node enrich-sbom-sha-256.cjs</code></pre>
+<p>Bước 6 đã tạo <code>sbom.json.sha256</code>, nên không bắt buộc chạy lại. Dùng bước này nếu cần tạo lại checksum sau khi hoàn tất thay đổi có chủ đích đối với <code>sbom.json</code>.</p>
+<h3>Bước 8 — Xác minh checksum</h3>
+<pre><code>sha256sum --check sbom.json.sha256</code></pre>
+<p>Kết quả mong đợi:</p>
+<pre><code>sbom.json: OK</code></pre>
+<p><code>OK</code> nghĩa là SHA-256 của file hiện tại khớp checksum đã lưu. Nếu chỉnh sửa file sau đó, kết quả kiểm tra có thể không còn khớp.</p>
+</section>
+<section id="quick">
+<h2>3. Lệnh tổng hợp để chạy lại</h2>
+<p>Chạy lần lượt từng lệnh và kiểm tra kết quả trước khi sang bước kế tiếp. Khối này giữ cả hai bước tùy chọn như quy trình đã thực hiện.</p>
+<pre><code>npx license-checker --json &gt; licenses.base.json
+node enrich-license.cjs
+
+npx @cyclonedx/cyclonedx-npm --output-file sbom.base.json --output-format JSON --omit dev --spec-version 1.5
+
+# Tuy chon: ban lockfile de doi chieu
+node -e "require('fs').writeFileSync('lock.inspect.json', JSON.stringify(require('./package-lock.json'), null, 2))"
+
+npm audit --json &gt; audit.json
+node enrich-sbom.cjs
+
+# Tuy chon: buoc enrich-sbom da tao checksum
+node enrich-sbom-sha-256.cjs
+sha256sum --check sbom.json.sha256</code></pre>
+</section>
+<section id="outputs">
+<h2>4. Các file trong quy trình</h2>
+<div class="flow">licenses.base.json → enrich-license.cjs → THIRD_PARTY_NOTICES.json<br><br>sbom.base.json + audit.json + package-lock.json → enrich-sbom.cjs → sbom.json + sbom.json.sha256</div>
+<div class="table-wrap"><table>
+<thead><tr><th>File</th><th>Vai trò</th><th>Nguồn tạo</th></tr></thead>
+<tbody>
+<tr><td><code>licenses.base.json</code></td><td>Dữ liệu giấy phép đầu vào</td><td>license-checker</td></tr>
+<tr><td><code>THIRD_PARTY_NOTICES.json</code></td><td>Thông tin thư viện và nội dung giấy phép</td><td>enrich-license.cjs</td></tr>
+<tr><td><code>sbom.base.json</code></td><td>SBOM gốc để đối chiếu</td><td>cyclonedx-npm</td></tr>
+<tr><td><code>lock.inspect.json</code></td><td>Bản sao để kiểm tra, không dùng trong enrich</td><td>Lệnh node -e</td></tr>
+<tr><td><code>audit.json</code></td><td>Báo cáo audit đầu vào</td><td>npm audit</td></tr>
+<tr><td><code>sbom.json</code></td><td>SBOM sau khi bổ sung dữ liệu</td><td>enrich-sbom.cjs</td></tr>
+<tr><td><code>sbom.json.sha256</code></td><td>Checksum để kiểm tra sbom.json</td><td>Một trong hai script SBOM</td></tr>
+</tbody></table></div>
+<p>Bộ kết quả thường cần lấy: <strong>THIRD_PARTY_NOTICES.json</strong>, <strong>sbom.json</strong>, <strong>sbom.json.sha256</strong>. Giữ các file đầu vào để đối chiếu khi cần.</p>
+</section>
+<section id="checks">
+<h2>5. Kiểm tra và giới hạn của script hiện tại</h2>
+<div class="note attention"><strong>Checksum không phải kiểm tra chất lượng SBOM.</strong> Kết quả <code>sbom.json: OK</code> không chứng minh file hợp lệ theo schema CycloneDX, không chứng minh dependency an toàn và không xác thực nguồn phát hành.</div>
+<p>Các điểm dưới đây được rút ra từ mã script hiện tại:</p>
+<ul>
+<li><code>getIntegrity(name, version)</code> chỉ tra <code>node_modules/${name}</code>; tham số <code>version</code> chưa được dùng. Script chưa xử lý đầy đủ package có scope trong trường <code>group</code> hoặc dependency nằm lồng trong lockfile.</li>
+<li>Script chép nguyên chuỗi <code>integrity</code> vào <code>hashes[].content</code> và gán nhãn <code>SHA-512</code>; chưa có bước chuyển đổi hay xác minh định dạng hash.</li>
+<li><code>audit.vulnerabilities</code> được gán trực tiếp vào <code>sbom.vulnerabilities</code>, chưa có bước chuyển đổi hay kiểm tra schema CycloneDX. Cần xác minh schema nếu hệ thống nhận yêu cầu SBOM chuẩn.</li>
+<li>SBOM dùng <code>--omit dev</code>, còn lệnh audit và license-checker trong quy trình không chỉ định cùng bộ lọc. Không mặc định ba báo cáo có cùng phạm vi dependency.</li>
+<li>Nếu <code>audit.json</code> không có trường <code>vulnerabilities</code>, script dùng object rỗng. Vì vậy phải kiểm tra audit có thành công, tránh nhầm lỗi đầu vào thành “không có lỗ hổng”.</li>
+</ul>
+<h3>Xử lý lỗi thường gặp</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Hiện tượng</th><th>Cách xử lý</th></tr></thead>
+<tbody>
+<tr><td>ENOENT / không tìm thấy file</td><td>Đứng tại thư mục gốc; kiểm tra file đầu vào của bước tương ứng đã được tạo.</td></tr>
+<tr><td>JSON parse error</td><td>Kiểm tra file không rỗng, không lẫn log. Chạy lại bước tạo file và đọc lỗi trên terminal.</td></tr>
+<tr><td>Audit báo lỗi registry hoặc kết nối</td><td>Khắc phục kết nối rồi lấy lại audit.json trước khi enrich.</td></tr>
+<tr><td>EPERM với esbuild.exe khi cài dependency</td><td>Dừng dev server/build đang sử dụng file, rồi hoàn tất cài dependency trước khi tạo báo cáo.</td></tr>
+<tr><td>Checksum FAILED</td><td>Kiểm tra file có bị chỉnh sửa hoặc lấy nhầm phiên bản. Chỉ tạo lại checksum khi đã xác nhận nội dung file là đúng.</td></tr>
+<tr><td>Không có sha256sum</td><td>Chạy lệnh trong Git Bash trên Windows như quy trình này.</td></tr>
+</tbody></table></div>
+</section>
+<section id="scripts">
+<h2>6. Nội dung đầy đủ các script</h2>
+<p>Lưu từng đoạn vào file <code>.cjs</code> tương ứng tại thư mục gốc. Nội dung bên dưới được chép từ các file hiện có; giữ nguyên cả các giới hạn đã nêu ở phần kiểm tra. Đây là bản chụp tại lúc cập nhật tài liệu, không tự đồng bộ khi script thay đổi.</p>
+<h3 id="script-license">enrich-license.cjs</h3>
+<pre class="script-code"><code class="language-javascript">const fs = require(&quot;fs&quot;);
+const path = require(&quot;path&quot;);
+
+const licenses = JSON.parse(
+fs.readFileSync(&quot;licenses.base.json&quot;, &quot;utf8&quot;)
+);
+
+for (const [pkg, info] of Object.entries(licenses)) {
+let licenseText = &quot;&quot;;
+let copyright = &quot;&quot;;
+
+if (info.licenseFile &amp;&amp; fs.existsSync(info.licenseFile)) {
+    licenseText = fs.readFileSync(info.licenseFile, &quot;utf8&quot;);
+
+    // T&#236;m d&#242;ng Copyright đầu ti&#234;n
+    const match = licenseText.match(/^.*copyright.*$/gim);
+
+    if (match &amp;&amp; match.length &gt; 0) {
+    copyright = match[0].trim();
+    }
+}
+
+info.copyright = copyright;
+info.licenseText = licenseText;
+
+// Kh&#244;ng xuất đường dẫn local
+delete info.path;
+delete info.licenseFile;
+}
+
+fs.writeFileSync(
+&quot;THIRD_PARTY_NOTICES.json&quot;,
+JSON.stringify(licenses, null, 2)
+);
+
+console.log(&quot;Done!&quot;);</code></pre>
+<h3 id="script-sbom">enrich-sbom.cjs</h3>
+<pre class="script-code"><code class="language-javascript">const fs = require(&quot;fs&quot;);
+const crypto = require(&#39;crypto&#39;);
+
+const sbom = JSON.parse(fs.readFileSync(&quot;sbom.base.json&quot;, &quot;utf8&quot;));
+const audit = JSON.parse(fs.readFileSync(&quot;audit.json&quot;, &quot;utf8&quot;));
+const lock = JSON.parse(fs.readFileSync(&quot;package-lock.json&quot;, &quot;utf8&quot;));
+
+function getIntegrity(name, version) {
+  const dep = lock.packages?.[`node_modules/${name}`];
+  if (!dep) return null;
+
+  const integrity = dep.integrity; // sha512
+  return integrity || null;
+}
+
+sbom.components = sbom.components.map((c) =&gt; {
+  const integrity = getIntegrity(c.name, c.version);
+
+  return {
+    ...c,
+    hashes: integrity
+      ? [
+          {
+            alg: &quot;SHA-512&quot;,
+            content: integrity
+          }
+        ]
+      : c.hashes
+  };
+});
+
+// attach vulnerability info (ITS often wants this)
+sbom.vulnerabilities = audit.vulnerabilities || {};
+
+const file = &#39;sbom.json&#39;;
+fs.writeFileSync(file, JSON.stringify(sbom, null, 2));
+
+console.log(&quot;SBOM enriched with SHA + audit data&quot;);
+
+// create file .sha256
+const hash = crypto
+  .createHash(&#39;sha256&#39;)
+  .update(fs.readFileSync(file))
+  .digest(&#39;hex&#39;);
+
+fs.writeFileSync(`${file}.sha256`, `${hash}  ${file}\n`);
+
+console.log(&#39;Created:&#39;, `${file}.sha256`);</code></pre>
+<h3 id="script-sha">enrich-sbom-sha-256.cjs</h3>
+<pre class="script-code"><code class="language-javascript">const fs = require(&#39;fs&#39;);
+const crypto = require(&#39;crypto&#39;);
+
+const file = &#39;sbom.json&#39;;
+
+const hash = crypto
+  .createHash(&#39;sha256&#39;)
+  .update(fs.readFileSync(file))
+  .digest(&#39;hex&#39;);
+
+fs.writeFileSync(`${file}.sha256`, `${hash}  ${file}\n`);
+
+console.log(&#39;Created:&#39;, `${file}.sha256`);</code></pre>
+</section>
+<footer>Tài liệu mô tả quy trình và hành vi script tại thời điểm biên soạn; không thay đổi các script. HTML độc lập, không tải tài nguyên ngoài.</footer>
+<p><button type="button" onclick="window.print()">In / Lưu thành PDF</button></p>
+</main>
+</body>
+</html>

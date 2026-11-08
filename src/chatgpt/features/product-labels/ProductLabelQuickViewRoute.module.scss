@@ -1,0 +1,28 @@
+/* ChatGPT-owned Product Label Quick View presentation. */
+.drawer {
+  :global(.ant-drawer-body) {
+    overflow-wrap: anywhere;
+  }
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+.recordId {
+  display: block;
+  margin: -8px 0 20px;
+  overflow-wrap: anywhere;
+}
+
+.value {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.closeRow {
+  display: flex;
+  justify-content: flex-end;
+}

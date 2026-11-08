@@ -1,0 +1,39 @@
+.workspace { min-height: 100vh; background: #f7f7f5; color: #242424; font: 14px/1.5 system-ui, sans-serif; }
+.workspace a { color: #174b70; }
+.workspace a:focus-visible, .workspace button:focus-visible, .workspace textarea:focus-visible, .workspace input:focus-visible, .workspace select:focus-visible { outline: 3px solid #174b70; outline-offset: 2px; }
+.skip { position: absolute; left: -9999px; top: 8px; background: white; padding: 8px; z-index: 10; }
+.skip:focus { left: 8px; }
+.header { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 24px 32px; border-bottom: 1px solid #d9dddf; background: #fff; }
+.header p { margin: 4px 0 0; }
+.eyebrow { color: #52616b; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.brand { font-size: 23px; font-weight: 700; text-decoration: none; }
+.columns { display: grid; grid-template-columns: minmax(210px, 250px) minmax(0, 1fr); max-width: 1600px; margin: auto; }
+.nav { display: flex; flex-direction: column; gap: 4px; padding: 24px 16px; border-right: 1px solid #d9dddf; }
+.nav a { padding: 9px 12px; border-radius: 5px; text-decoration: none; }
+.nav a:hover, .nav a[aria-current='page'] { background: #e6eef3; }
+.main { min-width: 0; padding: 24px 32px 60px; }
+.main h1 { font-size: 26px; line-height: 1.25; margin: 8px 0 16px; }
+.main h2 { font-size: 19px; margin: 0 0 12px; }
+.main h3 { font-size: 15px; margin: 12px 0 8px; }
+.main p { max-width: 85ch; }
+.card, .destination { background: #fff; border: 1px solid #d9dddf; border-radius: 8px; padding: 20px; margin: 20px 0; }
+.destinationGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.destination { margin: 0; min-width: 0; }
+.destination code, .table small { overflow-wrap: anywhere; }
+.availability { display: inline-block; background: #eceff1; padding: 2px 7px; border-radius: 4px; font-size: 12px; text-transform: capitalize; }
+.button { font: inherit; font-weight: 600; padding: 8px 12px; border: 1px solid #7c929f; border-radius: 5px; background: white; color: #174b70; cursor: pointer; }
+.button:hover { background: #e6eef3; }
+.sectionHeading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.tableScroll { overflow-x: auto; }
+.table { border-collapse: collapse; width: 100%; min-width: 780px; }
+.table th, .table td { border-bottom: 1px solid #d9dddf; padding: 12px; text-align: left; vertical-align: top; }
+.table thead { background: #f0f3f4; }
+.table small { display: block; font-weight: 400; color: #52616b; margin-top: 5px; }
+.table textarea { min-width: 155px; }
+.workspace label { display: block; font-weight: 600; }
+.workspace textarea, .workspace input, .workspace select { display: block; box-sizing: border-box; width: 100%; border: 1px solid #8899a0; border-radius: 4px; background: #fff; color: #242424; font: inherit; font-weight: 400; padding: 8px; margin-top: 5px; }
+.formGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.card > label { margin-top: 16px; }
+.hint { color: #52616b; font-size: 13px; }
+.visuallyHidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+@media (max-width: 760px) { .header { padding: 18px; align-items: flex-start; flex-direction: column; } .columns { display: block; } .nav { border-right: 0; border-bottom: 1px solid #d9dddf; padding: 10px; flex-direction: row; overflow-x: auto; } .nav a { flex: 0 0 auto; } .main { padding: 20px 16px 40px; } .destinationGrid, .formGrid { grid-template-columns: 1fr; } }

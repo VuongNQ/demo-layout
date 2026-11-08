@@ -1,0 +1,82 @@
+/* ChatGPT-owned Promotion Offer Full Page presentation. */
+.page {
+  width: min(100%, 1120px);
+  margin-inline: auto;
+  padding-bottom: 40px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.backButton {
+  padding-inline: 0;
+  white-space: normal;
+  text-align: left;
+}
+
+.title {
+  margin: 0 !important;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.sectionNavigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 20px;
+}
+
+.sectionNavigation :global(.ant-btn) {
+  height: auto;
+  padding: 4px 0;
+  white-space: normal;
+  text-align: left;
+}
+
+.validationSummary ul {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+
+.validationSummary li {
+  margin-block: 4px;
+}
+
+.validationSummary :global(.ant-btn) {
+  height: auto;
+  padding: 2px 0;
+  white-space: normal;
+  text-align: left;
+}
+
+.createActions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  margin-top: 8px;
+}
+
+@media (max-width: 575px) {
+  .page {
+    padding-bottom: 24px;
+  }
+
+  .sectionNavigation {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .createActions {
+    justify-content: stretch;
+  }
+
+  .createActions :global(.ant-btn) {
+    flex: 1 1 auto;
+  }
+}

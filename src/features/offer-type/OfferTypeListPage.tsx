@@ -1,5 +1,7 @@
+import { claudePath } from '@/claude/routes/route-meta';
 import { useState } from 'react';
 import { Table, Tag, Button, Space, Pagination } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { Link, Outlet, useNavigate } from 'react-router-dom';
@@ -23,6 +25,7 @@ const PAGE_SIZE = 20;
 // opens, unlike substrate B (full page) where navigating away does
 // unmount this list.
 export function OfferTypeListPage() {
+  const { t } = useTranslation('claude');
   const [page, setPage] = useState(1);
   const navigate = useNavigate();
   const { data, isLoading } = useOfferTypeListQuery({ page, pageSize: PAGE_SIZE });
@@ -48,8 +51,8 @@ export function OfferTypeListPage() {
   return (
     <>
       <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" onClick={() => navigate('/offer-types/create')}>
-          + Tạo mới
+        <Button type="primary" onClick={() => navigate(claudePath('offerTypeCreate'))}>
+          {t('offer.createNew')}
         </Button>
         <ImportLocalDataButton />
       </Space>
@@ -64,17 +67,17 @@ export function OfferTypeListPage() {
             components={{ body: { row: SortableRow } }}
             columns={[
               { key: 'drag', width: 32, render: () => <DragHandle /> },
-              { title: 'Tên', dataIndex: 'name' },
+              { title: t('offer.tableName'), dataIndex: 'name' },
               {
-                title: 'Trạng thái',
+                title: t('offer.tableStatus'),
                 dataIndex: 'status',
-                render: (status: OfferStatus) => <Tag color={STATUS_COLOR[status]}>{status}</Tag>
+                render: (status: OfferStatus) => <Tag color={STATUS_COLOR[status]}>{t(`offer.${status}`)}</Tag>
               },
-              { title: 'Thứ tự', dataIndex: 'priority', width: 80 },
+              { title: t('offer.order'), dataIndex: 'priority', width: 80 },
               {
-                title: '',
+                title: t('claude:actions'),
                 key: 'actions',
-                render: (_, record) => <Link to={`/offer-types/${record.id}`}>Cài đặt</Link>
+                render: (_, record) => <Link to={claudePath('offerTypeDetail', { id: record.id })}>{t('offer.configure')}</Link>
               }
             ]}
           />

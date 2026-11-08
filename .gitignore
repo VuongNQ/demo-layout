@@ -6,3 +6,4 @@ dist-ssr
 
 # Real data never belongs in this repository. See README.
 local-data/
+.npm-cache/

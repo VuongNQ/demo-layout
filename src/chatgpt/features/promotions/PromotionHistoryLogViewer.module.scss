@@ -1,0 +1,189 @@
+/* ChatGPT-owned Promotion History Log Viewer presentation. */
+.modal :global(.ant-modal) {
+  width: min(880px, calc(100vw - 24px)) !important;
+  max-width: calc(100vw - 24px);
+  margin: 12px auto;
+  padding-bottom: 0;
+}
+
+.modal :global(.ant-modal-content) {
+  display: flex;
+  max-height: calc(100dvh - 24px);
+  flex-direction: column;
+}
+
+.modal :global(.ant-modal-body) {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.title {
+  margin: 0 !important;
+  overflow-wrap: anywhere;
+  font-size: 20px !important;
+  line-height: 28px !important;
+}
+
+.content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.demoNotice {
+  overflow-wrap: anywhere;
+}
+
+.viewerGrid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(160px, 0.32fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.eventList,
+.detailColumn {
+  min-width: 0;
+}
+
+.eventList {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.subheading {
+  margin: 0 0 12px !important;
+  overflow-wrap: anywhere;
+  font-size: 16px !important;
+  line-height: 24px !important;
+}
+
+.eventButton {
+  display: flex;
+  height: auto;
+  min-height: 52px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  white-space: normal;
+  text-align: left;
+}
+
+.eventButton small {
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.metadata {
+  overflow-wrap: anywhere;
+}
+
+.eventSection,
+.commentSection {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+}
+
+.changes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.changeRow {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(100px, 0.7fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding-block: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.changeField,
+.value {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.value {
+  margin: 4px 0 0 !important;
+  white-space: pre-wrap;
+}
+
+.copyActions {
+  margin-top: 12px;
+}
+
+.copyPreview {
+  max-height: 180px;
+  overflow: auto;
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: inherit;
+  font: inherit;
+}
+
+.commentList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.comment {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 6px;
+  background: #f3f4f6;
+}
+
+.commentMetadata {
+  margin-bottom: 4px;
+}
+
+.commentBody {
+  margin: 0 !important;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.commentForm {
+  margin-top: 16px;
+}
+
+.confirmation {
+  position: sticky;
+  bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .viewerGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .eventList {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .changeRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .eventSection,
+  .commentSection {
+    padding: 12px;
+  }
+}

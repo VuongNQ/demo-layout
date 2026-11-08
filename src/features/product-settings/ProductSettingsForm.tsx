@@ -13,6 +13,7 @@ import {
   type FormInstance
 } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import type { ProductSettings } from './demo-product-settings-data';
 
 export type ProductSettingsFormValues = Omit<ProductSettings, 'id'>;
@@ -37,6 +38,7 @@ type Props = {
 // short fields share the available width rather than leaving blank
 // space beside them — see the layout feedback this responds to.
 export function ProductSettingsForm({ form, initialValues, onValuesChange }: Props) {
+  const { t } = useTranslation('claude');
   return (
     <Form<ProductSettingsFormValues>
       form={form}
@@ -45,25 +47,25 @@ export function ProductSettingsForm({ form, initialValues, onValuesChange }: Pro
       onValuesChange={onValuesChange}
       scrollToFirstError={{ behavior: 'smooth', block: 'center' }}
     >
-      <Typography.Title level={5}>Thông tin chung</Typography.Title>
+      <Typography.Title level={5}>{t('productSettings.general')}</Typography.Title>
       <Row gutter={16}>
         <Col xs={24} sm={10}>
-          <Form.Item name="name" label="Tên sản phẩm" rules={[{ required: true, message: 'Bắt buộc' }]}>
+          <Form.Item name="name" label={t('productSettings.productName')} rules={[{ required: true, message: t('validation:required') }]}>
             <Input />
           </Form.Item>
         </Col>
         <Col xs={24} sm={8}>
-          <Form.Item name="code" label="Mã sản phẩm" rules={[{ required: true }]}>
+          <Form.Item name="code" label={t('productSettings.productCode')} rules={[{ required: true, message: t('validation:required') }]}>
             <Input />
           </Form.Item>
         </Col>
         <Col xs={24} sm={6}>
-          <Form.Item name="status" label="Trạng thái" rules={[{ required: true }]}>
+          <Form.Item name="status" label={t('status')} rules={[{ required: true, message: t('validation:required') }]}>
             <Select
               options={[
-                { value: 'active', label: 'Active' },
-                { value: 'draft', label: 'Draft' },
-                { value: 'inactive', label: 'Inactive' }
+                { value: 'active', label: t('offer.active') },
+                { value: 'draft', label: t('offer.draft') },
+                { value: 'inactive', label: t('offer.inactive') }
               ]}
             />
           </Form.Item>
@@ -71,10 +73,10 @@ export function ProductSettingsForm({ form, initialValues, onValuesChange }: Pro
       </Row>
 
       <Divider />
-      <Typography.Title level={5}>Biểu lãi suất theo hạn mức</Typography.Title>
+      <Typography.Title level={5}>{t('productSettings.rateTiers')}</Typography.Title>
       <Row gutter={16}>
         <Col xs={24} sm={6}>
-          <Form.Item name="baseRate" label="Lãi suất cơ bản (%)" rules={[{ required: true }]}>
+          <Form.Item name="baseRate" label={t('productSettings.baseRate')} rules={[{ required: true, message: t('validation:required') }]}>
             <InputNumber min={0} max={100} style={{ width: '100%' }} />
           </Form.Item>
         </Col>
@@ -85,17 +87,17 @@ export function ProductSettingsForm({ form, initialValues, onValuesChange }: Pro
             {fields.map((field) => (
               <Row key={field.key} gutter={16} align="middle">
                 <Col xs={24} sm={7}>
-                  <Form.Item name={[field.name, 'minAmount']} rules={[{ required: true }]} label="Từ">
+                  <Form.Item name={[field.name, 'minAmount']} rules={[{ required: true, message: t('validation:required') }]} label={t('productSettings.from')}>
                     <InputNumber min={0} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={7}>
-                  <Form.Item name={[field.name, 'maxAmount']} rules={[{ required: true }]} label="Đến">
+                  <Form.Item name={[field.name, 'maxAmount']} rules={[{ required: true, message: t('validation:required') }]} label={t('productSettings.to')}>
                     <InputNumber min={0} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={7}>
-                  <Form.Item name={[field.name, 'rate']} rules={[{ required: true }]} label="Lãi suất (%)">
+                  <Form.Item name={[field.name, 'rate']} rules={[{ required: true, message: t('validation:required') }]} label={t('productSettings.rate')}>
                     <InputNumber min={0} max={100} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
@@ -105,18 +107,18 @@ export function ProductSettingsForm({ form, initialValues, onValuesChange }: Pro
               </Row>
             ))}
             <Button icon={<PlusOutlined />} onClick={() => add({ minAmount: 0, maxAmount: 0, rate: 0 })}>
-              Thêm bậc lãi suất
+              {t('productSettings.addTier')}
             </Button>
           </>
         )}
       </Form.List>
 
       <Divider />
-      <Typography.Title level={5}>Điều kiện khách hàng</Typography.Title>
+      <Typography.Title level={5}>{t('productSettings.customerConditions')}</Typography.Title>
       <Row gutter={16}>
         <Col xs={24} sm={8}>
-          <Form.Item name="customerType" label="Đối tượng" rules={[{ required: true }]}>
-            <Select options={[{ value: 'individual', label: 'Cá nhân' }, { value: 'business', label: 'Doanh nghiệp' }]} />
+          <Form.Item name="customerType" label={t('productSettings.audience')} rules={[{ required: true, message: t('validation:required') }]}>
+            <Select options={[{ value: 'individual', label: t('productSettings.individual') }, { value: 'business', label: t('productSettings.business') }]} />
           </Form.Item>
         </Col>
         {/* Conditional fields: re-render only when customerType actually
@@ -127,12 +129,12 @@ export function ProductSettingsForm({ form, initialValues, onValuesChange }: Pro
             getFieldValue('customerType') === 'individual' ? (
               <>
                 <Col xs={24} sm={8}>
-                  <Form.Item name="minAge" label="Tuổi tối thiểu" rules={[{ required: true }]}>
+                  <Form.Item name="minAge" label={t('productSettings.minAge')} rules={[{ required: true, message: t('validation:required') }]}>
                     <InputNumber min={18} max={100} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={8}>
-                  <Form.Item name="maxAge" label="Tuổi tối đa" rules={[{ required: true }]}>
+                  <Form.Item name="maxAge" label={t('productSettings.maxAge')} rules={[{ required: true, message: t('validation:required') }]}>
                     <InputNumber min={18} max={100} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
@@ -140,18 +142,15 @@ export function ProductSettingsForm({ form, initialValues, onValuesChange }: Pro
             ) : (
               <>
                 <Col xs={24} sm={8}>
-                  <Form.Item name="minRevenue" label="Doanh thu tối thiểu/năm" rules={[{ required: true }]}>
+                  <Form.Item name="minRevenue" label={t('productSettings.minRevenue')} rules={[{ required: true, message: t('validation:required') }]}>
                     <InputNumber min={0} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={8}>
-                  <Form.Item name="businessTypes" label="Loại hình doanh nghiệp" rules={[{ required: true }]}>
+                  <Form.Item name="businessTypes" label={t('productSettings.businessTypes')} rules={[{ required: true, message: t('validation:required') }]}>
                     <Select
                       mode="multiple"
-                      options={['Hộ kinh doanh', 'Công ty TNHH', 'Công ty cổ phần', 'Doanh nghiệp tư nhân'].map((v) => ({
-                        value: v,
-                        label: v
-                      }))}
+                      options={[[ 'Hộ kinh doanh', 'household' ], [ 'Công ty TNHH', 'limitedCompany' ], [ 'Công ty cổ phần', 'jointStock' ], [ 'Doanh nghiệp tư nhân', 'privateEnterprise' ]].map(([value, key]) => ({ value, label: t(`productSettings.${key}`) }))}
                     />
                   </Form.Item>
                 </Col>
@@ -162,7 +161,7 @@ export function ProductSettingsForm({ form, initialValues, onValuesChange }: Pro
       </Row>
 
       <Divider />
-      <Typography.Title level={5}>Hồ sơ yêu cầu</Typography.Title>
+      <Typography.Title level={5}>{t('productSettings.requiredDocuments')}</Typography.Title>
       <Form.List name="documents">
         {(fields, { add, remove }) => (
           <>
@@ -170,12 +169,12 @@ export function ProductSettingsForm({ form, initialValues, onValuesChange }: Pro
               <Row key={field.key} gutter={16} align="middle">
                 <Col flex="auto">
                   <Form.Item name={[field.name, 'name']} rules={[{ required: true }]}>
-                    <Input placeholder="Tên hồ sơ" />
+                    <Input placeholder={t('productSettings.documentName')} />
                   </Form.Item>
                 </Col>
                 <Col flex="140px">
                   <Form.Item name={[field.name, 'required']} valuePropName="checked">
-                    <Checkbox>Bắt buộc</Checkbox>
+                    <Checkbox>{t('productSettings.required')}</Checkbox>
                   </Form.Item>
                 </Col>
                 <Col flex="32px">
@@ -184,15 +183,15 @@ export function ProductSettingsForm({ form, initialValues, onValuesChange }: Pro
               </Row>
             ))}
             <Button icon={<PlusOutlined />} onClick={() => add({ name: '', required: false })}>
-              Thêm hồ sơ
+              {t('productSettings.addDocument')}
             </Button>
           </>
         )}
       </Form.List>
 
       <Divider />
-      <Typography.Title level={5}>Cấu hình nâng cao</Typography.Title>
-      <Form.Item name="advancedEnabled" label="Bật cấu hình nâng cao" valuePropName="checked">
+      <Typography.Title level={5}>{t('productSettings.advanced')}</Typography.Title>
+      <Form.Item name="advancedEnabled" label={t('productSettings.enableAdvanced')} valuePropName="checked">
         <Switch />
       </Form.Item>
       <Form.Item noStyle shouldUpdate={(prev, next) => prev.advancedEnabled !== next.advancedEnabled}>
@@ -200,18 +199,18 @@ export function ProductSettingsForm({ form, initialValues, onValuesChange }: Pro
           getFieldValue('advancedEnabled') ? (
             <Row gutter={16}>
               <Col xs={24} sm={12}>
-                <Form.Item name="approvalWorkflow" label="Luồng phê duyệt" rules={[{ required: true }]}>
+                <Form.Item name="approvalWorkflow" label={t('productSettings.approvalWorkflow')} rules={[{ required: true, message: t('validation:required') }]}>
                   <Select
                     options={[
-                      { value: 'auto', label: 'Tự động' },
-                      { value: 'single-approver', label: '1 người phê duyệt' },
-                      { value: 'committee', label: 'Hội đồng' }
+                      { value: 'auto', label: t('productSettings.automatic') },
+                      { value: 'single-approver', label: t('productSettings.oneApprover') },
+                      { value: 'committee', label: t('productSettings.committee') }
                     ]}
                   />
                 </Form.Item>
               </Col>
               <Col xs={24} sm={12}>
-                <Form.Item name="riskScoreThreshold" label="Ngưỡng điểm rủi ro" rules={[{ required: true }]}>
+                <Form.Item name="riskScoreThreshold" label={t('productSettings.riskThreshold')} rules={[{ required: true, message: t('validation:required') }]}>
                   <InputNumber min={0} max={100} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
