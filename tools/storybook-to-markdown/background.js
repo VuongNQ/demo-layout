@@ -5,7 +5,7 @@ const MAX_PAGES = 120;
 const NAVIGATION_TIMEOUT_MS = 20000;
 const READINESS_TIMEOUT_MS = 16000;
 const READINESS_POLL_MS = 250;
-const DEFAULT_CONCURRENCY = 2;
+const DEFAULT_CONCURRENCY = 1;
 let job = null;
 let runner = null;
 let persistQueue = Promise.resolve();
@@ -26,6 +26,11 @@ function persist() {
   if (!job) return Promise.resolve();
   persistQueue = persistQueue.catch(() => {}).then(() => chrome.storage.local.set({ [JOB_KEY]: clone(job) }));
   return persistQueue;
+}
+
+function discardExtractedContent() {
+  for (const entry of job?.entries || []) delete entry.page;
+  if (job) job.extractedContentDeletedAt = now();
 }
 
 function progressState() {
@@ -55,12 +60,23 @@ function updateJob(patch) {
 
 function categoryFor(entry) {
   const titleParts = String(entry.title || '').split(/[\\/]/).map((part) => part.trim()).filter(Boolean);
-  const tags = Array.isArray(entry.tags) ? entry.tags.map((tag) => String(tag).toLowerCase()) : [];
-  const labels = [...titleParts, ...tags].map((value) => value.toLowerCase());
-  if (labels.some((value) => /^(guide|guides|documentation|docs)$/.test(value))) return 'guides';
-  if (labels.some((value) => /^(form|forms)$/.test(value))) return 'form';
-  if (labels.some((value) => /^(component|components)$/.test(value))) return 'components';
-  return 'unclassified';
+  const titleCategory = new Map([['guide', 'guides'], ['guides', 'guides'], ['documentation', 'guides'], ['docs', 'guides'], ['form', 'form'], ['forms', 'form'], ['component', 'components'], ['components', 'components']]).get(String(titleParts[0] || '').toLowerCase());
+  const tagCategories = [...new Set((Array.isArray(entry.tags) ? entry.tags : []).map((tag) => String(tag).toLowerCase()).map((tag) => {
+    if (['guide', 'guides', 'documentation', 'docs'].includes(tag)) return 'guides';
+    if (['form', 'forms'].includes(tag)) return 'form';
+    if (['component', 'components'].includes(tag)) return 'components';
+    return '';
+  }).filter(Boolean))];
+  if (titleCategory && (!tagCategories.length || tagCategories.length === 1 && tagCategories[0] === titleCategory)) {
+    return { category: titleCategory, source: 'title-hierarchy', confidence: 'high', evidence: `Storybook title begins with the recognized ${titleCategory}/ category.` };
+  }
+  if (!titleCategory && tagCategories.length === 1) {
+    return { category: tagCategories[0], source: 'storybook-tag', confidence: 'high', evidence: `Storybook tags include the recognized ${tagCategories[0]} category.` };
+  }
+  const evidence = titleCategory || tagCategories.length > 1
+    ? `Conflicting category metadata (title category: ${titleCategory || 'none'}; tags: ${tagCategories.join(', ') || 'none'}); routed to components/ with low confidence.`
+    : 'No recognized category metadata in Storybook title hierarchy or tags; routed to components/ with low confidence.';
+  return { category: 'components', source: 'fallback', confidence: 'low', evidence };
 }
 
 function slugSegment(value) {
@@ -88,7 +104,8 @@ function assignPaths(entries) {
   const used = new Set();
   for (const entry of entries) {
     const parts = String(entry.title || '').split(/[\\/]/).map((part) => part.trim()).filter(Boolean);
-    const category = categoryFor(entry);
+    const classification = categoryFor(entry);
+    const category = classification.category;
     let groups = [];
     if (parts.length > 1 && /^(guides?|documentation|docs|forms?|components?)$/i.test(parts[0])) groups = parts.slice(1, -1);
     else if (parts.length > 1 && category !== 'unclassified') groups = parts.slice(0, -1);
@@ -100,6 +117,9 @@ function assignPaths(entries) {
     while (used.has(path)) path = `${pathBase}-${collision++}.md`;
     used.add(path);
     entry.category = category;
+    entry.categorySource = classification.source;
+    entry.categoryConfidence = classification.confidence;
+    entry.categoryEvidence = classification.evidence;
     entry.path = path;
     entry.titleSource = entry.title ? 'index-title' : entry.name ? 'index-name' : 'storybook-id';
     entry.title = entry.title || entry.name || entry.id;
@@ -147,6 +167,7 @@ async function discover(tabId, sourceUrl) {
 function buildDocsUrl(sourceUrl, id) {
   const target = new URL(sourceUrl);
   target.searchParams.set('path', `/docs/${id}`);
+  target.search = target.search.replace(/([?&]path=)%2Fdocs%2F/i, '$1/docs/');
   target.hash = '';
   return target.href;
 }
@@ -181,47 +202,84 @@ function navigateTab(tabId, target) {
   });
 }
 
-function isDocsReady(expectedId) {
+function inspectDocsReadiness(expectedId) {
   const params = new URLSearchParams(location.search);
   const route = params.get('path') || '';
-  const id = route.replace(/^\/docs\//, '');
-  const root = document.querySelector('.sbdocs-wrapper, .sbdocs-content, #storybook-docs, [data-testid="storybook-docs"]');
-  if (!root || id !== expectedId) return { ready: false, id, length: 0 };
-  if (root.matches?.('[aria-busy="true"]') || root.querySelector('[aria-busy="true"], .sb-preparing-story, [data-testid*="loading"], [data-testid*="loader"]')) return { ready: false, id, length: 0 };
+  const iframeId = params.get('id') || '';
+  const viewMode = params.get('viewMode') || '';
+  const routeId = route.replace(/^\/docs\//, '');
+  const id = routeId || iframeId;
+  const routeMatches = routeId === expectedId || (viewMode === 'docs' && iframeId === expectedId);
+  const rootSelectors = ['.sbdocs-wrapper', '.sbdocs-content', '#storybook-docs', '[data-testid="storybook-docs"]'];
+  const matchedRootSelector = rootSelectors.find((selector) => document.querySelector(selector)) || '';
+  const root = matchedRootSelector ? document.querySelector(matchedRootSelector) : null;
+  if (!root || !routeMatches) return { ready: false, id, route, viewMode, matchedRootSelector, length: 0, busySelectors: [], reason: !routeMatches ? 'entry-id-mismatch' : 'docs-root-absent' };
   const value = String(root.innerText || root.textContent || '').replace(/\s+/g, ' ').trim();
-  return { ready: value.length > 0, id, length: value.length, signature: `${document.title}|${value.slice(0, 240)}|${value.length}` };
+  const busySelectors = [];
+  if (root.matches?.('[aria-busy="true"]')) busySelectors.push('[aria-busy="true"] (root)');
+  for (const selector of ['[aria-busy="true"]', '.sb-preparing-story', '[data-testid*="loading"]', '[data-testid*="loader"]']) {
+    if (root.querySelector(selector) && !busySelectors.some((item) => item.startsWith(selector))) busySelectors.push(selector);
+  }
+  const placeholderOnly = /^(loading(?:\s+docs)?[.…]*|preparing story[.…]*)$/i.test(value);
+  // Storybook can leave a stale busy marker beside fully rendered Docs text.
+  // Matching ID, substantive text and stability are the readiness authority;
+  // busy selectors remain diagnostic evidence rather than an unconditional veto.
+  const substantive = value.length > 0 && !placeholderOnly;
+  let textHash = 2166136261;
+  for (let index = 0; index < value.length; index++) textHash = Math.imul(textHash ^ value.charCodeAt(index), 16777619);
+  return {
+    ready: routeMatches && Boolean(root) && substantive,
+    id,
+    route,
+    viewMode,
+    matchedRootSelector,
+    length: value.length,
+    busySelectors,
+    reason: substantive ? (busySelectors.length ? 'content-visible-with-busy-marker' : 'content-visible') : 'content-empty-or-placeholder',
+    signature: `${document.title}|${value.length}|${textHash >>> 0}`,
+  };
 }
 
 async function waitForDocsReady(tabId, entry) {
   const started = now();
   let previous = '';
   let stableCount = 0;
+  let lastFrames = [];
+  let samples = [];
   while (now() - started < READINESS_TIMEOUT_MS) {
     if (job.cancelRequested) throw new Error('Cancelled after active page settled.');
-    const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: isDocsReady, args: [entry.id] });
-    const probes = results.map((result) => ({ frameId: result.frameId, ...(result.result || {}) })).filter((result) => result.ready);
+    const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectDocsReadiness, args: [entry.id] });
+    lastFrames = results.map((result) => ({ frameId: result.frameId, ...(result.result || {}) }));
+    const probes = lastFrames.filter((result) => result.ready);
     probes.sort((a, b) => a.frameId - b.frameId);
     if (probes.length) {
-      const signature = `${probes[0].frameId}:${probes[0].signature}`;
+      const selected = probes[0];
+      const signature = `${selected.frameId}:${selected.id}:${selected.matchedRootSelector}:${selected.signature}`;
       stableCount = signature === previous ? stableCount + 1 : 1;
       previous = signature;
-      if (stableCount >= 3) return;
+      samples = [...samples, { sample: stableCount, frameId: selected.frameId, id: selected.id, rootSelector: selected.matchedRootSelector, textLength: selected.length, busySelectors: selected.busySelectors }].slice(-3);
+      if (stableCount >= 3) return { ...selected, frameId: selected.frameId, stabilizationSamples: samples };
     } else {
       previous = '';
       stableCount = 0;
+      samples = [];
     }
     await new Promise((resolve) => setTimeout(resolve, READINESS_POLL_MS));
   }
-  throw new Error(`Docs readiness timed out after ${READINESS_TIMEOUT_MS / 1000}s (expected ID: ${entry.id}).`);
+  const frameSummary = lastFrames.map(({ frameId, id, route, viewMode, matchedRootSelector, length, busySelectors, reason }) =>
+    `frame ${frameId}: id=${id || 'none'}, route=${route || 'none'}, viewMode=${viewMode || 'none'}, root=${matchedRootSelector || 'none'}, text=${length || 0}, busy=${busySelectors?.join(',') || 'none'}, reason=${reason || 'unknown'}`,
+  ).join('; ').slice(0, 900);
+  throw new Error(`Docs readiness timed out after ${READINESS_TIMEOUT_MS / 1000}s (expected ID: ${entry.id}). Last frame probes: ${frameSummary || 'none'}`);
 }
 
-async function extractFromTab(tabId, options, expectedId = '') {
-  const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: extractStorybookDocument, args: [options] });
+async function extractFromTab(tabId, options, expectedId = '', frameId = undefined) {
+  const target = frameId === undefined ? { tabId, allFrames: true } : { tabId, frameIds: [frameId] };
+  const results = await chrome.scripting.executeScript({ target, func: extractStorybookDocument, args: [options] });
   const pages = results.map((result) => ({ frameId: result.frameId, ...(result.result || {}) })).filter((page) => page.title || page.contentLength);
   if (!pages.length) throw new Error('No readable frame. Check site permissions and Docs readiness.');
   pages.sort((a, b) => Number(b.foundDocs) - Number(a.foundDocs) || Number(a.frameId) - Number(b.frameId) || b.contentLength - a.contentLength);
   const page = pages[0];
-  if (expectedId && !page.foundDocs) throw new Error(`Storybook Docs wrapper not found for ${expectedId}.`);
+  if (expectedId && (!page.foundDocs || page.storyId !== expectedId)) throw new Error(`Storybook Docs content mismatch (expected ${expectedId}, found ${page.storyId || 'unknown'}).`);
   return page;
 }
 
@@ -259,15 +317,19 @@ async function processEntry(entry, tabId) {
   await notifyPopup();
   const target = buildDocsUrl(job.sourceUrl, entry.id);
   await navigateTab(tabId, target);
-  await waitForDocsReady(tabId, entry);
+  const readiness = await waitForDocsReady(tabId, entry);
   if (job.cancelRequested) throw new Error('Cancelled after active page settled.');
-  const page = await extractFromTab(tabId, job.options, entry.id);
+  const page = await extractFromTab(tabId, job.options, entry.id, readiness.frameId);
+  page.readiness = { frameId: readiness.frameId, entryId: readiness.id, rootSelector: readiness.matchedRootSelector, textLength: readiness.length, stabilizationSamples: readiness.stabilizationSamples, busySelectors: readiness.busySelectors };
   page.entryId = entry.id;
   page.entryTitle = entry.title;
   page.entryName = entry.name;
   page.entryTags = entry.tags;
   page.sourceUrl = page.url;
   page.category = entry.category;
+  page.categorySource = entry.categorySource;
+  page.categoryConfidence = entry.categoryConfidence;
+  page.categoryEvidence = entry.categoryEvidence;
   page.path = entry.path;
   page.frameId = page.frameId ?? 0;
   entry.page = page;
@@ -322,26 +384,36 @@ async function crawlPool() {
 function zipFilesFor(jobSnapshot) {
   const successful = jobSnapshot.entries.filter((entry) => entry.status === 'succeeded' && entry.page);
   const tokens = new Map();
+  const tokenContext = (token, page) => token.context || page.tokenContext || { theme: 'unknown', colorScheme: 'unknown' };
+  const tokenIdentity = (token) => token.identity || (token.name ? `css-custom-property:${token.name}` : `computed-style:${token.label || 'unknown'}`);
+  const tokenValue = (token) => token.name ? token.value : { color: token.color || '', background: token.background || '', font: token.font || '', fontSize: token.fontSize || '', radius: token.radius || '' };
+  const tokenGroupKey = (token, page) => JSON.stringify([tokenIdentity(token), tokenContext(token, page)]);
+  const tokenKey = (token, page) => JSON.stringify([tokenIdentity(token), tokenContext(token, page), tokenValue(token)]);
   for (const entry of successful) {
     for (const token of entry.page.tokens || []) {
-      const key = token.name ? `css:${token.name}\u0000${token.value}` : `computed:${token.label}\u0000${token.color}\u0000${token.background}\u0000${token.font}\u0000${token.fontSize}\u0000${token.radius}`;
-      if (!tokens.has(key)) tokens.set(key, { ...token, kind: token.name ? 'css-custom-property' : 'computed-style', sources: [] });
+      const key = tokenKey(token, entry.page);
+      if (!tokens.has(key)) tokens.set(key, { ...token, identity: tokenIdentity(token), context: tokenContext(token, entry.page), kind: token.name ? 'css-custom-property' : 'computed-style', sources: [] });
       const source = { id: entry.id, path: entry.path, url: entry.page.sourceUrl, frameId: entry.page.frameId };
       if (!tokens.get(key).sources.some((existing) => existing.id === source.id && existing.frameId === source.frameId)) tokens.get(key).sources.push(source);
     }
   }
-  const cssValues = new Map();
-  for (const token of tokens.values()) if (token.name) {
-    if (!cssValues.has(token.name)) cssValues.set(token.name, new Set());
-    cssValues.get(token.name).add(token.value);
+  const valuesByIdentityContext = new Map();
+  for (const [key, token] of tokens) {
+    const groupKey = tokenGroupKey(token, { tokenContext: token.context });
+    if (!valuesByIdentityContext.has(groupKey)) valuesByIdentityContext.set(groupKey, new Map());
+    valuesByIdentityContext.get(groupKey).set(JSON.stringify(tokenValue(token)), key);
   }
-  for (const token of tokens.values()) if (token.name) token.conflict = cssValues.get(token.name).size > 1;
-  const manifestEntries = jobSnapshot.entries.map(({ id, type, title, titleSource, name, tags, importPath, category, path, status, attempts, error, history, page }) => ({
-    id, type, title, titleSource, name, tags, importPath, category, path, status, attempts, error: error || '', history: history || [], sourceUrl: page?.sourceUrl || buildDocsUrl(jobSnapshot.sourceUrl, id),
+  for (const token of tokens.values()) {
+    const variants = [...valuesByIdentityContext.get(tokenGroupKey(token, { tokenContext: token.context })).keys()];
+    token.conflict = variants.length > 1;
+    if (token.conflict) token.conflictValues = variants.map((value) => JSON.parse(value));
+  }
+  const manifestEntries = jobSnapshot.entries.map(({ id, type, title, titleSource, name, tags, importPath, category, categorySource, categoryConfidence, categoryEvidence, path, status, attempts, error, history, page }) => ({
+    id, type, title, titleSource, name, tags, importPath, category, categorySource, categoryConfidence, categoryEvidence, path, status, attempts, error: error || '', history: history || [], readiness: page?.readiness || null, sourceUrl: page?.sourceUrl || buildDocsUrl(jobSnapshot.sourceUrl, id),
   }));
   const manifest = {
     schemaVersion: 1,
-    exporterVersion: '0.2.0',
+    exporterVersion: '0.3.0',
     jobId: jobSnapshot.id,
     sourceOrigin: new URL(jobSnapshot.sourceUrl).origin,
     sourceUrl: jobSnapshot.sourceUrl,
@@ -350,12 +422,14 @@ function zipFilesFor(jobSnapshot) {
     completedAt: new Date().toISOString(),
     options: jobSnapshot.options,
     concurrency: jobSnapshot.concurrency,
+    categoryFolders: ['guides', 'components', 'form'],
+    unknownCategoryFallback: { folder: 'components', confidence: 'low', evidenceRecordedPerEntry: true },
     counts: { discovered: jobSnapshot.discoveredCount, selected: jobSnapshot.entries.length, succeeded: successful.length, failed: jobSnapshot.entries.length - successful.length, omitted: Math.max(0, jobSnapshot.discoveredCount - jobSnapshot.entries.length) },
     entries: manifestEntries,
-    tokenObservations: [...tokens.values()].sort((a, b) => String(a.name || a.label).localeCompare(String(b.name || b.label)) || String(a.value || '').localeCompare(String(b.value || ''))),
+    tokenObservations: [...tokens.values()].sort((a, b) => a.identity.localeCompare(b.identity) || JSON.stringify(a.context).localeCompare(JSON.stringify(b.context)) || JSON.stringify(tokenValue(a)).localeCompare(JSON.stringify(tokenValue(b)))),
   };
   const indexLines = ['# Storybook Docs index', '', `Source: ${jobSnapshot.sourceUrl}`, '', '## Pages', ''];
-  for (const category of ['guides', 'components', 'form', 'unclassified']) {
+  for (const category of ['guides', 'components', 'form']) {
     const group = successful.filter((entry) => entry.category === category);
     if (!group.length) continue;
     indexLines.push(`### ${category}`, '');
@@ -367,16 +441,15 @@ function zipFilesFor(jobSnapshot) {
   const reportLines = ['# Extraction report', '', `Job: \`${jobSnapshot.id}\``, `Source: ${jobSnapshot.sourceUrl}`, `Discovered: ${jobSnapshot.discoveredCount}`, `Selected: ${jobSnapshot.entries.length}`, `Succeeded: ${successful.length}`, `Failed: ${failures.length}`, `Omitted by cap: ${Math.max(0, jobSnapshot.discoveredCount - jobSnapshot.entries.length)}`, '', '## Page outcomes', ''];
   for (const entry of jobSnapshot.entries) {
     const outcomes = (entry.history || []).map((attempt) => `#${attempt.attempt} ${attempt.status}${attempt.error ? ` (${attempt.error})` : ''}`).join(', ');
-    reportLines.push(`- \`${entry.id}\` (${entry.title}): ${entry.status}; attempts ${entry.attempts || 0}${outcomes ? `; history: ${outcomes}` : ''}${entry.error ? `; latest error: ${entry.error}` : ''}`);
+    reportLines.push(`- \`${entry.id}\` (${entry.title}): ${entry.status}; category ${entry.category} (${entry.categoryConfidence || 'unknown'} confidence: ${entry.categoryEvidence || 'no evidence recorded'})${outcomes ? `; attempts: ${outcomes}` : `; attempts ${entry.attempts || 0}`}${entry.error ? `; latest error: ${entry.error}` : ''}`);
   }
   reportLines.push('', '> Token and computed-style values are observations from rendered pages, not confirmed canonical design tokens.', '');
   const files = [
     { path: 'guides/', content: '' },
     { path: 'components/', content: '' },
     { path: 'form/', content: '' },
-    { path: 'unclassified/', content: '' },
     { path: 'tokens/', content: '' },
-    { path: 'README.md', content: `# Storybook Docs export\n\nSource: ${jobSnapshot.sourceUrl}\n\nThis archive contains rendered Docs observations. It does not infer unavailable component metadata, prop types, or defaults. Unknown category metadata is kept under \`unclassified/\`.\n\nToken and computed-style observations are not canonical design-token claims. See [INDEX.md](INDEX.md), [tokens/design-tokens.md](tokens/design-tokens.md), and [EXTRACTION_REPORT.md](EXTRACTION_REPORT.md).\n` },
+    { path: 'README.md', content: `# Storybook Docs export\n\nSource: ${jobSnapshot.sourceUrl}\n\nThis archive contains rendered Docs observations. It does not infer unavailable component metadata, prop types, or defaults. Docs entries without recognized category metadata are routed to \`components/\` with low-confidence fallback evidence in the manifest and extraction report.\n\nToken and computed-style observations are not canonical design-token claims. See [INDEX.md](INDEX.md), [tokens/design-tokens.md](tokens/design-tokens.md), and [EXTRACTION_REPORT.md](EXTRACTION_REPORT.md).\n` },
     { path: 'INDEX.md', content: indexLines.join('\n') },
     { path: 'manifest.json', content: JSON.stringify(manifest, null, 2) + '\n' },
     { path: 'EXTRACTION_REPORT.md', content: reportLines.join('\n') },
@@ -389,10 +462,10 @@ function zipFilesFor(jobSnapshot) {
 
 function renderTokens(tokens) {
   const lines = ['# Observed design token and style values', '', '> These are runtime observations, not confirmed canonical design tokens.', ''];
-  for (const token of tokens.sort((a, b) => String(a.name || a.label).localeCompare(String(b.name || b.label)) || String(a.value || '').localeCompare(String(b.value || '')))) {
+  for (const token of tokens.sort((a, b) => a.identity.localeCompare(b.identity) || JSON.stringify(a.context).localeCompare(JSON.stringify(b.context)) || JSON.stringify(tokenValueForRender(a)).localeCompare(JSON.stringify(tokenValueForRender(b))))) {
     const value = token.name ? token.value : [token.color, token.background, token.font, token.fontSize, token.radius].filter(Boolean).join('; ');
-    lines.push(`## ${token.name || token.label || 'Unlabelled computed style'}`, '', `- Kind: ${token.kind}`, `- Value: ${String(value || '').replace(/\n/g, ' ')}`);
-    if (token.conflict) lines.push('- Conflict: this CSS variable was observed with multiple values across pages.');
+    lines.push(`## ${token.identity || token.name || token.label || 'Unlabelled computed style'}`, '', `- Kind: ${token.kind}`, `- Value: ${String(value || '').replace(/\n/g, ' ')}`, `- Context: theme=${token.context?.theme || 'unknown'}; color-scheme=${token.context?.colorScheme || 'unknown'}`);
+    if (token.conflict) lines.push('- Conflict: this identity and context were observed with multiple values.');
     lines.push('- Sources:');
     for (const source of token.sources) lines.push(`  - [${source.id}](${source.path}) · frame ${source.frameId} · ${source.url}`);
     lines.push('');
@@ -400,8 +473,12 @@ function renderTokens(tokens) {
   return lines.join('\n');
 }
 
+function tokenValueForRender(token) {
+  return token.name ? token.value : [token.color || '', token.background || '', token.font || '', token.fontSize || '', token.radius || ''];
+}
+
 function renderStoryPage(page, options) {
-  const lines = [`# ${page.title || page.entryTitle}`, '', `Storybook ID: \`${page.entryId}\``, `Source: ${page.sourceUrl}`, `Category: ${page.category}`, `Frame: ${page.frameId}`, ''];
+  const lines = [`# ${page.title || page.entryTitle}`, '', `Storybook ID: \`${page.entryId}\``, `Source: ${page.sourceUrl}`, `Category: ${page.category} (${page.categoryConfidence || 'unknown'} confidence)`, `Category evidence: ${page.categoryEvidence || 'No category evidence recorded.'}`, `Frame: ${page.frameId}`, ''];
   if (page.description?.length) lines.push('## Description', '', ...page.description.map((text) => md(text)), '');
   if (page.headings?.length) lines.push('## Sections', '', ...page.headings.map((heading) => `${'  '.repeat(Math.max(0, heading.level - 2))}- ${md(heading.text)}`), '');
   const tableGroups = [
@@ -441,6 +518,8 @@ function md(value) { return String(value ?? '').replace(/([\\`*_{}\[\]<>])/g, '\
 function cell(value) { return String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim(); }
 
 async function createZipUrl(files) {
+  // The ZIP writer is pure JavaScript, but URL.createObjectURL is unavailable in extension service workers.
+  // Keep the Blob/object-URL step in this bundled offscreen document for the downloads API handoff.
   let exists = false;
   if (chrome.runtime.getContexts) {
     const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [chrome.runtime.getURL('offscreen.html')] });
@@ -554,9 +633,10 @@ async function runAll() {
         await releaseArchiveUrl(job.downloadUrl);
         if (job.cancelRequested || downloadState === 'interrupted') {
           const cancelled = job.cancelRequested;
-          await updateJob({ state: cancelled ? 'cancelled' : 'failed', phase: cancelled ? 'Cancelled; temporary tabs closed' : 'ZIP download failed', currentPage: null, cancelRequested: false, lastError: cancelled ? '' : 'Chrome interrupted the ZIP download.' });
+          await updateJob({ state: cancelled ? 'cancelled' : 'failed', phase: cancelled ? 'Cancelled; temporary tabs closed' : 'ZIP download failed', currentPage: null, cancelRequested: false, downloadId: null, downloadUrl: '', lastError: cancelled ? '' : 'Chrome interrupted the ZIP download.' });
         } else {
-          await updateJob({ state: 'completed', phase: 'ZIP download completed', currentPage: null, completedAt: now() });
+          discardExtractedContent();
+          await updateJob({ state: 'completed', phase: 'ZIP download completed; extracted page checkpoints deleted', currentPage: null, completedAt: now(), downloadId: null, downloadUrl: '' });
         }
         return;
       }
@@ -597,10 +677,11 @@ async function runAll() {
       if (job.cancelRequested || downloadState === 'interrupted') {
         await releaseArchiveUrl(url);
         const cancelled = job.cancelRequested;
-        await updateJob({ state: cancelled ? 'cancelled' : 'failed', phase: cancelled ? 'Cancelled; temporary tabs closed' : 'ZIP download failed', currentPage: null, completedAt: now(), cancelRequested: false, lastError: cancelled ? '' : 'Chrome interrupted the ZIP download.' });
+        await updateJob({ state: cancelled ? 'cancelled' : 'failed', phase: cancelled ? 'Cancelled; temporary tabs closed' : 'ZIP download failed', currentPage: null, completedAt: now(), cancelRequested: false, downloadId: null, downloadUrl: '', lastError: cancelled ? '' : 'Chrome interrupted the ZIP download.' });
       } else {
         await releaseArchiveUrl(url);
-        await updateJob({ state: 'completed', phase: 'ZIP download completed', currentPage: null, completedAt: now(), cancelRequested: false, pauseRequested: false });
+        discardExtractedContent();
+        await updateJob({ state: 'completed', phase: 'ZIP download completed; extracted page checkpoints deleted', currentPage: null, completedAt: now(), cancelRequested: false, pauseRequested: false, downloadId: null, downloadUrl: '' });
       }
     } catch (error) {
       const message = errorText(error);
@@ -656,10 +737,14 @@ async function resumeJob() {
     }
     return { ok: true, job: progressState() };
   }
-  if (!['paused', 'failed', 'cancelled'].includes(job.state)) return { ok: false, error: 'This job is not resumable.' };
+  if (!['paused', 'failed', 'cancelled', 'completed'].includes(job.state)) return { ok: false, error: 'This job is not resumable.' };
+  if (job.state === 'completed' && !job.entries.some((entry) => entry.status === 'failed')) return { ok: false, error: 'There are no failed pages to retry.' };
   const cleanup = await closeWorkerTabs();
   if (!cleanup.ok) return { ok: false, error: `Cannot resume until temporary tabs close: ${cleanup.remaining.join(', ')}` };
-  for (const entry of job.entries) if (entry.status === 'failed') entry.status = 'queued';
+  for (const entry of job.entries) {
+    if (entry.status === 'failed' || job.state === 'completed' && entry.status === 'succeeded' && !entry.page) entry.status = 'queued';
+  }
+  job.completedAt = null;
   job.pauseRequested = false;
   job.cancelRequested = false;
   job.state = job.entries.length ? 'crawling' : 'discovering';
@@ -702,6 +787,10 @@ async function controlJob(action, id) {
     if (!cleanup.ok) return { ok: false, error: `Cannot retry until temporary tabs close: ${cleanup.remaining.join(', ')}` };
     const entry = job.entries.find((candidate) => candidate.id === id);
     if (!entry || entry.status !== 'failed') return { ok: false, error: 'Only a failed Docs entry can be retried.' };
+    if (job.state === 'completed') {
+      for (const candidate of job.entries) if (candidate.status === 'succeeded' && !candidate.page) candidate.status = 'queued';
+      job.completedAt = null;
+    }
     entry.status = 'retrying';
     entry.error = '';
     job.state = 'crawling';

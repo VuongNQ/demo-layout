@@ -4,7 +4,12 @@ function extractStorybookDocument(options) {
   const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
   const text = (element) => clean(element?.textContent);
   const docsSelector = '.sbdocs-wrapper, .sbdocs-content, #storybook-docs, [data-testid="storybook-docs"]';
-  const matchedRoot = document.querySelector(docsSelector);
+  const rootSelectors = ['.sbdocs-wrapper', '.sbdocs-content', '#storybook-docs', '[data-testid="storybook-docs"]'];
+  const matchedRootSelector = rootSelectors.find((selector) => document.querySelector(selector)) || '';
+  const matchedRoot = matchedRootSelector ? document.querySelector(matchedRootSelector) : null;
+  const params = new URLSearchParams(location.search);
+  const docsPath = params.get('path') || '';
+  const storyId = docsPath.replace(/^\/docs\//, '') || (params.get('viewMode') === 'docs' ? params.get('id') || '' : '');
   const root = matchedRoot || document.querySelector('main') || document.body;
   const titleNode = root.querySelector('h1, h2');
   const title = text(titleNode) || clean(document.title.replace(/\s*[-|]\s*Storybook.*$/i, '')) || 'Untitled';
@@ -65,19 +70,23 @@ function extractStorybookDocument(options) {
     .map((element) => ({ text: text(element), heading: nearestHeading(element), kind: element.tagName.toLowerCase() }))
     .filter((item) => item.text).slice(0, 30) : [];
   const tokens = [];
+  const rootStyle = getComputedStyle(document.documentElement);
+  const theme = clean(document.documentElement.getAttribute?.('data-theme') || document.documentElement.getAttribute?.('data-color-scheme') || document.body?.getAttribute?.('data-theme') || document.body?.getAttribute?.('data-color-scheme')) || 'unknown';
+  const tokenContext = { theme, colorScheme: clean(rootStyle.colorScheme) || 'unknown' };
   if (options.tokens) {
     for (const element of [...root.querySelectorAll('[style], [class*="token"], [class*="swatch"]')].slice(0, 150)) {
       const label = clean(element.getAttribute('aria-label') || element.getAttribute('title') || text(element)).slice(0, 100);
       const style = getComputedStyle(element);
       if (label && (String(element.className).match(/token|swatch/i) || element.hasAttribute('style'))) {
-        tokens.push({ label, color: style.color, background: style.backgroundColor, font: style.fontFamily, fontSize: style.fontSize, radius: style.borderRadius });
+        const classNames = typeof element.className === 'string' ? element.className.split(/\s+/).filter((name) => /token|swatch/i.test(name)).sort().join('.') : '';
+        const identity = element.getAttribute('data-token') || element.id || `${classNames || 'inline-style'}:${label}`;
+        tokens.push({ identity: `computed-style:${identity}`, label, context: tokenContext, color: style.color, background: style.backgroundColor, font: style.fontFamily, fontSize: style.fontSize, radius: style.borderRadius });
       }
     }
-    const styles = getComputedStyle(document.documentElement);
-    for (let index = 0; index < styles.length && tokens.length < 180; index++) {
-      const key = styles.item(index);
+    for (let index = 0; index < rootStyle.length && tokens.length < 180; index++) {
+      const key = rootStyle.item(index);
       if (key.startsWith('--') && /color|font|space|radius|size|shadow|border|brand/i.test(key)) {
-        tokens.push({ name: key, value: styles.getPropertyValue(key).trim() });
+        tokens.push({ identity: `css-custom-property:${key}`, name: key, value: rootStyle.getPropertyValue(key).trim(), context: tokenContext });
       }
     }
   }
@@ -85,6 +94,7 @@ function extractStorybookDocument(options) {
   return {
     title,
     url: location.href,
+    storyId,
     description,
     headings,
     tables: tableRecords,
@@ -94,8 +104,9 @@ function extractStorybookDocument(options) {
     examples,
     guidelines,
     tokens,
+    tokenContext,
     contentLength: bodyText.length,
     foundDocs: Boolean(matchedRoot),
-    rootSelector: matchedRoot ? docsSelector : '',
+    rootSelector: matchedRootSelector,
   };
 }

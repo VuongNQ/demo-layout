@@ -75,7 +75,7 @@ async function installStartButton(concurrency, session = sessionId) {
         const granted = await chrome.permissions.request({ origins: [${JSON.stringify(`${origin}/*`)}] });
         if (!granted) throw new Error('Origin permission was denied.');
         const matches = await chrome.tabs.query({ url: ${JSON.stringify(`${origin}/storybook/*`)} });
-        const tab = matches.find((item) => item.id !== chrome.runtime.id);
+        const tab = matches[0];
         if (!tab) throw new Error('Fixture tab was not found.');
         const response = await chrome.runtime.sendMessage({ action: 'START_ALL', tabId: tab.id, tabUrl: ${JSON.stringify(sourceUrl)}, options: ${JSON.stringify(options)}, concurrency: ${concurrency} });
         window.__startResult = response;
@@ -150,7 +150,6 @@ testResults.allDocs = { state: first.state, succeeded: first.succeeded, failed: 
 
 // The fixture fails one entry's first Docs render; retry it through the real popup control.
 if (first.failed !== 1) throw new Error(`Expected one fixture failure, saw ${first.failed}.`);
-await evalReopened(`document.querySelector('[data-entry-id="retry--docs"]')?.click()`);
 // Entry controls use a button in the page row, so find its containing row by its stable ID text.
 await evalReopened(`(() => { const row=[...document.querySelectorAll('.page-row')].find((el)=>el.textContent.includes('retry--docs')); row?.querySelector('.retry-entry')?.click(); })()`);
 let retried = first;
@@ -162,9 +161,14 @@ testResults.retry = retried.entries.find((entry) => entry.id === 'retry--docs').
 await evalReopened(`window.__startResult = null;`);
 await installStartButton(1, newSessionId);
 await waitJob((job) => job.state === 'crawling' && job.entries.some((entry) => entry.status === 'running'), 45000, newSessionId);
+const tabsBeforePause = (await popupJob(newSessionId)).tabIds || [];
 await click('#pause', newSessionId);
 let paused = await waitJob((job) => job.state === 'paused', 45000, newSessionId);
 if (paused.tabIds?.length) throw new Error('Paused job still owns temporary tabs.');
+for (const tabId of tabsBeforePause) {
+  try { await evalReopened(`chrome.tabs.get(${tabId})`); throw new Error(`Paused job left temporary tab ${tabId} open.`); }
+  catch (error) { if (error.message.includes('left temporary tab')) throw error; }
+}
 testResults.pause = paused.state;
 await browser.send('Target.closeTarget', { targetId: reopened.targetId });
 const resumeTarget = await browser.send('Target.createTarget', { url: `chrome-extension://${extensionId}/popup.html` });
@@ -211,10 +215,15 @@ const waitCancelStart = async () => {
   }
   throw new Error('Cancellation fixture crawl did not start.');
 };
-await waitCancelStart();
+const cancelRunning = await waitCancelStart();
+const tabsBeforeCancel = cancelRunning.tabIds || [];
 await cancelEval(`document.querySelector('#cancel').click()`);
 const cancelled = await waitJob((job) => job.state === 'cancelled', 45000, cancelSession);
 if (cancelled.tabIds?.length) throw new Error('Cancelled job still owns temporary tabs.');
+for (const tabId of tabsBeforeCancel) {
+  try { await cancelEval(`chrome.tabs.get(${tabId})`); throw new Error(`Cancelled job left temporary tab ${tabId} open.`); }
+  catch (error) { if (error.message.includes('left temporary tab')) throw error; }
+}
 testResults.cancel = cancelled.state;
 
 // Compare actual Chrome tab scheduling against this deterministic local fixture.
@@ -229,6 +238,8 @@ for (const concurrency of [1, 2, 3]) {
 
 testResults.downloads = (await downloadItems(cancelSession)).filter((item) => item.url?.startsWith('blob:') || item.filename.endsWith('.md'));
 testResults.permission = (await cancelEval(`new Promise((resolve)=>chrome.permissions.contains({origins:[${JSON.stringify(`${origin}/*`)}]},resolve))`));
+testResults.otherOriginPermission = (await cancelEval(`new Promise((resolve)=>chrome.permissions.contains({origins:['https://storybook-permission-scope.invalid/*']},resolve))`));
+if (!testResults.permission || testResults.otherOriginPermission) throw new Error('Host permission is not limited to the selected Storybook origin.');
 await browser.send('Target.closeTarget', { targetId: cancelTarget.targetId });
 await browser.send('Target.closeTarget', { targetId: resumeTarget.targetId }).catch(() => {});
 browser.close();

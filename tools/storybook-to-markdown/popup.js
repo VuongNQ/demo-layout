@@ -69,7 +69,7 @@ function appendPageOutcome(container, entry) {
     const retry = document.createElement('button');
     retry.type = 'button';
     retry.className = 'retry-entry secondary';
-    retry.textContent = 'Retry this page';
+    retry.textContent = currentJob?.state === 'completed' ? 'Retry and rebuild archive' : 'Retry this page';
     retry.disabled = ['discovering', 'crawling', 'processing', 'compressing'].includes(currentJob?.state);
     retry.addEventListener('click', async () => {
       retry.disabled = true;
@@ -117,6 +117,7 @@ function render(job) {
   byId('cancel').hidden = !active && job.state !== 'paused';
   byId('cancel').disabled = Boolean(job.cancelRequested);
   byId('retry-all').hidden = !(job.failed > 0 && ['completed', 'failed', 'paused'].includes(job.state));
+  byId('retry-all').textContent = job.state === 'completed' ? 'Retry failed pages and rebuild archive' : 'Retry failed pages';
   byId('retry-all').disabled = active;
   byId('pages').replaceChildren();
   for (const entry of job.entries || []) appendPageOutcome(byId('pages'), entry);
@@ -144,7 +145,7 @@ startButton.addEventListener('click', async () => {
     if (scope === 'all') {
       const granted = await chrome.permissions.request({ origins: [`${new URL(tab.url).origin}/*`] });
       if (!granted) throw new Error('Host permission for this Storybook origin is required.');
-      const response = await send({ action: 'START_ALL', tabId: tab.id, tabUrl: tab.url, options, concurrency: Number(byId('concurrency').value) });
+      const response = await send({ action: 'START_ALL', tabId: tab.id, tabUrl: tab.url, options });
       render(response.job);
     } else {
       messageNode.textContent = 'Extracting the current Docs page…';
