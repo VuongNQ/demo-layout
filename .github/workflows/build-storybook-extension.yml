@@ -1,0 +1,96 @@
+name: Build Storybook-to-Markdown extension
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - tools/storybook-to-markdown/**
+      - .github/workflows/build-storybook-extension.yml
+  push:
+    branches: [main]
+    paths:
+      - tools/storybook-to-markdown/**
+      - .github/workflows/build-storybook-extension.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Check extension JavaScript syntax
+        run: |
+          node --check tools/storybook-to-markdown/background.js
+          node --check tools/storybook-to-markdown/extractor.js
+          node --check tools/storybook-to-markdown/popup.js
+          node --check tools/storybook-to-markdown/offscreen.js
+
+      - name: Run extension smoke tests
+        run: node tools/storybook-to-markdown/tests/smoke.mjs
+
+      - name: Run standalone build and packaging tests
+        working-directory: tools/storybook-to-markdown
+        run: npm test
+
+      - name: Build extension
+        working-directory: tools/storybook-to-markdown
+        run: npm run build
+
+      - name: Package and verify validation output
+        working-directory: tools/storybook-to-markdown
+        run: |
+          npm run package
+          npm run verify
+
+  package:
+    name: Package extension artifact
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Build and package extension
+        working-directory: tools/storybook-to-markdown
+        run: npm run package
+
+      - name: Verify extension ZIP and version
+        id: archive
+        working-directory: tools/storybook-to-markdown
+        shell: bash
+        run: |
+          npm run verify
+          VERSION="$(node --input-type=module -e "import { readFileSync } from 'node:fs'; console.log(JSON.parse(readFileSync('manifest.json', 'utf8')).version)")"
+          ARCHIVE="release/storybook-to-markdown-v${VERSION}.zip"
+          test -f "$ARCHIVE"
+          unzip -t "$ARCHIVE"
+          unzip -Z1 "$ARCHIVE" | grep -Fxq 'manifest.json'
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload extension ZIP artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: storybook-to-markdown-v${{ steps.archive.outputs.version }}-${{ github.sha }}
+          path: tools/storybook-to-markdown/release/storybook-to-markdown-v${{ steps.archive.outputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

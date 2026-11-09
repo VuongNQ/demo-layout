@@ -17,6 +17,12 @@ npm run clean
 
 To load the unpacked build, open `chrome://extensions/`, enable Developer mode, choose **Load unpacked**, and select `tools/storybook-to-markdown/dist/`. To use the release ZIP, extract it first and load the extracted directory with **Load unpacked**; Chrome does not install the extension directly from this ZIP.
 
+## GitHub Actions builds
+
+The **Build Storybook-to-Markdown extension** workflow validates pull requests targeting `main` when extension files or the workflow change. Pull requests run syntax checks, smoke and packaging tests, build, package and ZIP verification without uploading an artifact. A push to `main` with those same path changes, or a manual `workflow_dispatch` run, also packages the extension and uploads the versioned ZIP as a GitHub Actions artifact. The artifact is named `storybook-to-markdown-v<manifest-version>-<commit-sha>` and is retained for 30 days. This workflow is independent of the demo-layout application build and Pages deployment.
+
+To download a CI build, open the workflow run from the repository's **Actions** tab and download its **Artifacts** item. Extract the downloaded artifact ZIP, then open `chrome://extensions/`, enable **Developer mode**, choose **Load unpacked**, and select the extracted directory containing `manifest.json`. The archive is a distribution package for the extension; it is separate from the ZIP produced by **All Docs**, which contains exported Storybook Markdown documentation.
+
 The release ZIP contains the Chrome extension runtime. It is different from the ZIP produced by **All Docs**, which contains the user's exported Storybook Markdown pages and observations.
 
 ## Load the extension from source
