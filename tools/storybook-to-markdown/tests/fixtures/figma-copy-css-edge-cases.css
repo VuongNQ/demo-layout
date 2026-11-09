@@ -1,0 +1,32 @@
+/* Panel */
+width: calc(100% - 40px);
+height: 320.5px;
+left: -12.25px;
+display: flex;
+gap: 12px;
+margin-top: 8px;
+font-family: "Inter", sans-serif;
+font-size: 14.5px;
+color: rgba(20, 30, 40, 0.75); /* inline color note */
+background-image: linear-gradient(90deg, rgba(0,0,0,0), #fff), url("https://assets.example.invalid/image.png");
+box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 4px 8px rgba(0,0,0,.12);
+transform: matrix(1, 0, 0, 1, -2.5, 0);
+/* Auto layout */
+/* Inside auto layout */
+/* Shadows/shadow-md */
+/* warning: gradient preview may differ from the source design */
+/* Image */
+background: url(https://assets.example.invalid/image.svg) center / cover no-repeat;
+border-radius: 8px;
+/* Item */
+opacity: 0.9;
+/* Item */
+border: 1px solid rgba(0, 0, 0, 0.2);
+/* ../CON */
+height: 12px
+opacity: .8;
+/* Carte 漢字 */
+--observed-accent: #123456;
+/* Broken declaration layer */
+width: calc(100% - 2px);
+border-radius;

@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import { buildFigmaCssArchive, parseFigmaCss } from '../figma-css.js';
 
 const directory = new URL('../', import.meta.url);
 const read = (name) => readFile(new URL(name, directory), 'utf8');
@@ -289,6 +290,21 @@ assert.equal(computedRows.length, 2, 'computed observations deduplicate within c
 assert.equal(computedRows.find((token) => token.context.theme === 'unknown').sources.length, 4);
 assert(archiveFiles.some((entry) => entry.content.includes('Props and variants')));
 assert(harness.state.storybookExportJob.entries.every((entry) => !Object.hasOwn(entry, 'page')), 'successful export deletes extracted page checkpoints');
+
+const figmaCssText = '/* Panel */\nwidth: calc(100% - 16px);\n/* Auto layout */\nbackground: linear-gradient(90deg, #fff, rgba(0,0,0,.1));';
+const figmaArchive = buildFigmaCssArchive(parseFigmaCss(figmaCssText), figmaCssText, 'Local design');
+const navigationCountBeforeFigma = harness.navigationUrls.length;
+const figmaResult = await harness.send({ action: 'EXPORT_FIGMA_CSS', files: figmaArchive.files, filename: figmaArchive.filename });
+assert(figmaResult.ok, figmaResult.error);
+assert.equal(figmaResult.filename, 'figma-css-local-design.zip');
+assert.equal(harness.downloadRequests.length, 3, 'Figma CSS import creates one independent ZIP download');
+assert.equal(harness.downloadRequests.at(-1).filename, 'figma-css-local-design.zip');
+assert.equal(harness.navigationUrls.length, navigationCountBeforeFigma, 'Figma CSS import does not navigate Storybook tabs');
+assert(harness.filesByZip.at(-1).some((file) => file.path === 'source/original.css'));
+assert.equal(harness.state.storybookExportJob.state, 'completed', 'Figma CSS import does not alter Storybook crawl state');
+const unsafeFigmaExport = await harness.send({ action: 'EXPORT_FIGMA_CSS', files: [...figmaArchive.files, { path: '../outside.md', content: 'unsafe' }], filename: figmaArchive.filename });
+assert.equal(unsafeFigmaExport.ok, false, 'background rejects unsafe archive paths before packaging');
+assert.equal(harness.downloadRequests.length, 3, 'rejected Figma archive does not create a download');
 
 const docsEntry = [{ id: 'guides-getting-started--docs', type: 'docs', title: 'Guides/Getting Started', name: 'Getting Started', tags: ['guide'] }];
 const manifestFor = (files) => JSON.parse(files.find((file) => file.path === 'manifest.json').content);
@@ -581,4 +597,4 @@ try {
 } finally {
   await rm(zipTestDir, { recursive: true, force: true });
 }
-console.log(JSON.stringify({ result: 'PASS', currentMarkdown: true, allDocsZip: archiveFiles.length, exactStoryIdPaths: true, collisionHashesOnly: true, pathLinksConsistent: true, deterministicCompletionOrder: true, defaultConcurrency: 1, fallbackCategory: 'components', tokenContextAndConflicts: true, checkpointDeletion: true, partialRetry: true, pauseResume: true, cancellationCleanup: true, zipSignatures: true, independentUnzip: true, mockPoolPeakNavigations: { sequential: serialHarness.peakNavigations, concurrency2: boundedHarness.peakNavigations, concurrency3: threeHarness.peakNavigations } }));
+console.log(JSON.stringify({ result: 'PASS', currentMarkdown: true, allDocsZip: archiveFiles.length, figmaCssZip: true, exactStoryIdPaths: true, collisionHashesOnly: true, pathLinksConsistent: true, deterministicCompletionOrder: true, defaultConcurrency: 1, fallbackCategory: 'components', tokenContextAndConflicts: true, checkpointDeletion: true, partialRetry: true, pauseResume: true, cancellationCleanup: true, zipSignatures: true, independentUnzip: true, mockPoolPeakNavigations: { sequential: serialHarness.peakNavigations, concurrency2: boundedHarness.peakNavigations, concurrency3: threeHarness.peakNavigations } }));

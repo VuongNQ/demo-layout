@@ -10,6 +10,6 @@
     "package": "node scripts/package.mjs",
     "verify": "node scripts/verify.mjs",
     "clean": "node scripts/clean.mjs",
-    "test": "node tests/build-packaging.mjs"
+    "test": "node tests/build-packaging.mjs && node tests/figma-css.mjs"
   }
 }

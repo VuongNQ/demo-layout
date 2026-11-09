@@ -13,7 +13,7 @@ npm run verify
 npm run clean
 ```
 
-`npm run build` validates the Manifest V3 runtime resource graph and JavaScript, then assembles the unpacked extension in `dist/`. `npm run package` builds first and writes `release/storybook-to-markdown-v<manifest-version>.zip`. The ZIP contains the contents of `dist/` directly, with `manifest.json` at its root. `npm run verify` checks runtime references, JavaScript syntax, output files, package version, safe archive paths, ZIP CRCs and exact package contents; it also runs system `unzip -t` when `unzip` is installed. `npm run clean` removes `dist/` and generated `storybook-to-markdown-v*.zip` files, preserving unrelated files under `release/`. Run `npm test` for build and packaging regression tests.
+`npm run build` validates the Manifest V3 runtime resource graph and JavaScript, then assembles the unpacked extension in `dist/`. `npm run package` builds first and writes `release/storybook-to-markdown-v<manifest-version>.zip`. The ZIP contains the contents of `dist/` directly, with `manifest.json` at its root. `npm run verify` checks runtime references, JavaScript syntax, output files, package version, safe archive paths, ZIP CRCs and exact package contents; it also runs system `unzip -t` when `unzip` is installed. `npm run clean` removes `dist/` and generated `storybook-to-markdown-v*.zip` files, preserving unrelated files under `release/`. Run `npm test` for build, packaging, and Figma CSS import regression tests.
 
 To load the unpacked build, open `chrome://extensions/`, enable Developer mode, choose **Load unpacked**, and select `tools/storybook-to-markdown/dist/`. To use the release ZIP, extract it first and load the extracted directory with **Load unpacked**; Chrome does not install the extension directly from this ZIP.
 
@@ -38,6 +38,14 @@ No install or build is required to load the source directory directly. After edi
 
 Current Docs uses the temporary `activeTab` grant and downloads a single `.md` file through Chrome's Save As dialog. It extracts from accessible frames and continues to support a best-effort export when a recognized Docs wrapper is absent.
 
+## Figma CSS import
+
+Choose **Figma CSS** to paste the text produced by Figma's Copy CSS action; Figma Dev Mode is not required. The optional source reference accepts Figma Design (`/design/...`) and Prototype (`/proto/...`) selection URLs, including `node-id=13-3169`, which is recorded as `13:3169`. The importer does not authenticate, call Figma APIs, inspect an open Figma tab, or send pasted CSS to any service. CSS `url(...)` values are retained as text and are not fetched.
+
+Choose **Parse / preview** to review the flat source-ordered layers and parser/source warning count, then **Export ZIP** to download one archive. The ZIP contains `source/original.css`, one Markdown page per parsed layer, an `INDEX.md`, JSON `manifest.json`, `EXTRACTION_REPORT.md`, and `tokens/observed-values.md`. The original CSS is retained verbatim as UTF-8 text. Layer metadata is limited to declarations present in the paste; unavailable groups are labeled unavailable. Source order does not establish parent-child hierarchy. Style-reference comments and custom properties are recorded as observations, not verified Figma variables or canonical design tokens. Malformed declarations remain in the layer data and are reported.
+
+Figma CSS import runs locally and does not use Storybook discovery, host permissions, page tabs, or crawl controls. It shares only the existing offscreen ZIP and Chrome download utilities; a Figma ZIP export is not run concurrently with an active Storybook crawl or Current Docs export.
+
 ## All Docs
 
 All Docs asks for host access to the selected Storybook origin only. It checks the current Storybook base path and origin-root `/index.json` and `/stories.json`, selects entries with `type: "docs"`, and caps the scan at 120 entries. It preserves each index ID, title, name, tags and source URL.
@@ -60,7 +68,9 @@ From the extension directory:
 node --check background.js
 node --check extractor.js
 node --check popup.js
+node --check figma-css.js
 node --check offscreen.js
+node tests/figma-css.mjs
 node tests/smoke.mjs
 ```
 

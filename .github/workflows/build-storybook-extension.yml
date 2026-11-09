@@ -35,6 +35,7 @@ jobs:
           node --check tools/storybook-to-markdown/background.js
           node --check tools/storybook-to-markdown/extractor.js
           node --check tools/storybook-to-markdown/popup.js
+          node --check tools/storybook-to-markdown/figma-css.js
           node --check tools/storybook-to-markdown/offscreen.js
 
       - name: Run extension smoke tests

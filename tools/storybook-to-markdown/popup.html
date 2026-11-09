@@ -12,6 +12,37 @@
     <p class="muted">Extract rendered Docs locally. No content is uploaded.</p>
     <p id="idle-status" role="status" aria-live="polite">Idle · ready to export.</p>
 
+    <fieldset class="mode-picker" aria-label="Import mode">
+      <legend>Import mode</legend>
+      <label class="option"><input id="mode-storybook" type="radio" name="import-mode" value="storybook" checked> Storybook Docs</label>
+      <label class="option"><input id="mode-figma" type="radio" name="import-mode" value="figma"> Figma CSS</label>
+    </fieldset>
+
+    <section id="figma-css-panel" aria-labelledby="figma-css-heading" hidden>
+      <h2 id="figma-css-heading">Figma Copy CSS import</h2>
+      <p class="muted">Paste copied CSS. It stays in this extension and is not sent to Figma or another service.</p>
+      <label class="figma-field" for="figma-selection-url">Selection URL (optional)</label>
+      <input id="figma-selection-url" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://www.figma.com/design/...">
+      <label class="figma-field" for="figma-export-name">Export name (optional)</label>
+      <input id="figma-export-name" type="text" maxlength="120" autocomplete="off" placeholder="Design section">
+      <label class="figma-field" for="figma-css-input">Pasted Figma Copy CSS</label>
+      <textarea id="figma-css-input" rows="11" maxlength="2000000" spellcheck="false" placeholder="/* Layer name */&#10;width: 320px;&#10;background: linear-gradient(...);"></textarea>
+      <div class="figma-counts" aria-live="polite">
+        <span>Layers: <strong id="figma-layer-count">0</strong></span>
+        <span>Warnings: <strong id="figma-warning-count">0</strong></span>
+      </div>
+      <div class="figma-actions">
+        <button id="figma-parse" type="button">Parse / preview</button>
+        <button id="figma-export" type="button" disabled>Export ZIP</button>
+        <button id="figma-clear" type="button" class="secondary">Clear / reset</button>
+      </div>
+      <p id="figma-message" role="status" aria-live="polite"></p>
+      <section id="figma-preview" class="figma-preview" aria-label="Parsed layer preview" hidden>
+        <h3>Layer preview</h3>
+        <div id="figma-layer-list"></div>
+      </section>
+    </section>
+
     <section id="new-export" aria-labelledby="export-heading">
       <h2 id="export-heading">New export</h2>
       <label class="option"><input type="radio" name="scope" value="current" checked> Current Docs page (.md)</label>
@@ -48,6 +79,6 @@
 
     <p id="message" role="status" aria-live="polite"></p>
   </main>
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

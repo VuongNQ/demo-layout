@@ -1,11 +1,16 @@
+import { buildFigmaCssArchive, parseFigmaCss } from './figma-css.js';
+
 const byId = (id) => document.getElementById(id);
 const startButton = byId('start');
 const messageNode = byId('message');
 const jobPanel = byId('job-panel');
 const newExport = byId('new-export');
+const figmaPanel = byId('figma-css-panel');
 let currentJob = null;
 let elapsedTimer = null;
 let lastAnnouncement = '';
+let activeImportMode = 'storybook';
+let parsedFigmaCss = null;
 
 function send(message) {
   return new Promise((resolve, reject) => {
@@ -81,6 +86,96 @@ function appendPageOutcome(container, entry) {
   container.append(row);
 }
 
+function setImportMode(mode) {
+  activeImportMode = mode === 'figma' ? 'figma' : 'storybook';
+  figmaPanel.hidden = activeImportMode !== 'figma';
+  newExport.hidden = activeImportMode === 'figma' || Boolean(currentJob?.state && !['idle', 'completed', 'cancelled', 'failed'].includes(currentJob.state));
+}
+
+function invalidateFigmaPreview() {
+  parsedFigmaCss = null;
+  byId('figma-export').disabled = true;
+  byId('figma-preview').hidden = true;
+  byId('figma-layer-count').textContent = '0';
+  byId('figma-warning-count').textContent = '0';
+  if (byId('figma-css-input').value) byId('figma-message').textContent = 'Input changed. Parse again to preview and export.';
+}
+
+function showFigmaPreview(parsed) {
+  const list = byId('figma-layer-list');
+  list.replaceChildren();
+  for (const layer of parsed.layers) {
+    const item = document.createElement('article');
+    item.className = 'figma-layer-preview';
+    const heading = document.createElement('h4');
+    heading.textContent = `${layer.order}. ${layer.name || '(unnamed layer)'}`;
+    const detail = document.createElement('p');
+    detail.textContent = `${layer.declarations.length} declaration${layer.declarations.length === 1 ? '' : 's'} · ${layer.warnings.length} warning${layer.warnings.length === 1 ? '' : 's'}`;
+    item.append(heading, detail);
+    if (layer.annotations.length) {
+      const annotations = document.createElement('p');
+      annotations.className = 'muted';
+      annotations.textContent = `Annotations: ${layer.annotations.map((annotation) => annotation.text).join('; ')}`;
+      item.append(annotations);
+    }
+    list.append(item);
+  }
+  byId('figma-layer-count').textContent = String(parsed.layers.length);
+  byId('figma-warning-count').textContent = String(parsed.warnings.length);
+  byId('figma-preview').hidden = false;
+  byId('figma-export').disabled = parsed.layers.length === 0;
+}
+
+byId('mode-storybook').addEventListener('change', () => setImportMode('storybook'));
+byId('mode-figma').addEventListener('change', () => setImportMode('figma'));
+for (const id of ['figma-css-input', 'figma-selection-url', 'figma-export-name']) byId(id).addEventListener('input', invalidateFigmaPreview);
+byId('figma-parse').addEventListener('click', () => {
+  const button = byId('figma-parse');
+  button.disabled = true;
+  byId('figma-message').textContent = '';
+  try {
+    parsedFigmaCss = parseFigmaCss(byId('figma-css-input').value, byId('figma-selection-url').value);
+    showFigmaPreview(parsedFigmaCss);
+    byId('figma-message').textContent = parsedFigmaCss.warnings.length ? 'Parsed locally. Review the warnings before export.' : 'Parsed locally. Review the layer preview before export.';
+  } catch (error) {
+    parsedFigmaCss = null;
+    byId('figma-layer-count').textContent = '0';
+    byId('figma-warning-count').textContent = '0';
+    byId('figma-preview').hidden = true;
+    byId('figma-export').disabled = true;
+    byId('figma-message').textContent = `Error: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});
+byId('figma-export').addEventListener('click', async () => {
+  const button = byId('figma-export');
+  if (!parsedFigmaCss) return;
+  button.disabled = true;
+  byId('figma-message').textContent = 'Building the local Figma CSS ZIP…';
+  try {
+    const archive = buildFigmaCssArchive(parsedFigmaCss, byId('figma-css-input').value, byId('figma-export-name').value);
+    const response = await send({ action: 'EXPORT_FIGMA_CSS', files: archive.files, filename: archive.filename });
+    byId('figma-message').textContent = `Downloaded ${response.filename}. Pasted CSS was processed locally.`;
+  } catch (error) {
+    byId('figma-message').textContent = `Error: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});
+byId('figma-clear').addEventListener('click', () => {
+  byId('figma-css-input').value = '';
+  byId('figma-selection-url').value = '';
+  byId('figma-export-name').value = '';
+  byId('figma-message').textContent = '';
+  parsedFigmaCss = null;
+  byId('figma-layer-list').replaceChildren();
+  byId('figma-layer-count').textContent = '0';
+  byId('figma-warning-count').textContent = '0';
+  byId('figma-preview').hidden = true;
+  byId('figma-export').disabled = true;
+});
+
 function render(job) {
   currentJob = job;
   const active = ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state);
@@ -88,7 +183,7 @@ function render(job) {
   const hasJob = job.state && job.state !== 'idle';
   jobPanel.hidden = !hasJob;
   byId('idle-status').hidden = hasJob;
-  newExport.hidden = hasJob && !terminal;
+  newExport.hidden = activeImportMode === 'figma' || (hasJob && !terminal);
   byId('new-after-terminal').hidden = !terminal;
 
   if (!hasJob) return;
@@ -178,6 +273,8 @@ byId('retry-all').addEventListener('click', async () => {
   catch (error) { messageNode.textContent = error.message; }
 });
 byId('new-after-terminal').addEventListener('click', () => {
+  byId('mode-storybook').checked = true;
+  setImportMode('storybook');
   newExport.hidden = false;
   jobPanel.hidden = true;
   byId('idle-status').hidden = false;
