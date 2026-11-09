@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Storybook to Markdown",
+  "version": "0.1.0",
+  "description": "Export current Storybook Docs page or all discoverable Docs pages to Markdown.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Storybook to Markdown"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
+}
