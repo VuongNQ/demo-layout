@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Storybook to Markdown",
+  "version": "0.3.0",
+  "description": "Export Storybook Docs to Markdown or a ZIP; unknown categories go to components.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Storybook to Markdown"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "storage",
+    "offscreen"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
+}

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Storybook to Markdown</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <h1>Storybook → Markdown</h1>
+    <p class="muted">Extract rendered Docs locally. No content is uploaded.</p>
+    <p id="idle-status" role="status" aria-live="polite">Idle · ready to export.</p>
+
+    <section id="new-export" aria-labelledby="export-heading">
+      <h2 id="export-heading">New export</h2>
+      <label class="option"><input type="radio" name="scope" value="current" checked> Current Docs page (.md)</label>
+      <label class="option"><input type="radio" name="scope" value="all"> All discoverable Docs (.zip)</label>
+      <fieldset>
+        <legend>Include</legend>
+        <label class="option"><input id="props" type="checkbox" checked> Props, variants & tables</label>
+        <label class="option"><input id="tokens" type="checkbox" checked> Observed token values</label>
+        <label class="option"><input id="examples" type="checkbox" checked> Examples & guidelines</label>
+      </fieldset>
+      <button id="start">Extract & download</button>
+      <details id="current-preview" hidden><summary>Current Docs Markdown preview</summary><pre id="preview">No export yet.</pre></details>
+    </section>
+
+    <section id="job-panel" aria-labelledby="job-heading" hidden>
+      <div class="job-title"><h2 id="job-heading">Export progress</h2><span id="state-pill" class="state-pill">Idle</span></div>
+      <div id="live-status" role="status" aria-live="polite" aria-atomic="true">No export in progress.</div>
+      <div class="progress-line">
+        <progress id="progress" max="100" value="0" aria-label="Export progress">0%</progress>
+        <span id="percent">0%</span>
+      </div>
+      <p id="counts" class="counts">0 / 0 pages · 0 succeeded · 0 failed</p>
+      <p id="elapsed" class="muted">Elapsed: 0:00</p>
+      <p id="current-page" class="current-page"></p>
+      <div class="controls">
+        <button id="pause" class="secondary">Pause</button>
+        <button id="resume" class="secondary">Resume</button>
+        <button id="cancel" class="danger">Cancel</button>
+      </div>
+      <button id="retry-all" class="secondary full" hidden>Retry failed pages</button>
+      <div id="pages" class="pages" aria-label="Docs page outcomes"></div>
+      <button id="new-after-terminal" class="secondary full" hidden>Start another export</button>
+    </section>
+
+    <p id="message" role="status" aria-live="polite"></p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
