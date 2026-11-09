@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Storybook to Markdown</title><link rel="stylesheet" href="popup.css"></head><body>
+<main><h1>Storybook → Markdown</h1><p class="muted">Extract rendered docs locally. No data is uploaded.</p>
+<label class="option"><input type="radio" name="scope" value="current" checked> Current Docs page</label>
+<label class="option"><input type="radio" name="scope" value="all"> All discoverable Docs pages</label>
+<fieldset><legend>Include</legend><label class="option"><input id="props" type="checkbox" checked> Props & variants</label><label class="option"><input id="tokens" type="checkbox" checked> Design tokens</label><label class="option"><input id="examples" type="checkbox" checked> Code examples & guidelines</label></fieldset>
+<button id="extract">Extract & download .md</button><p id="status" role="status" aria-live="polite"></p>
+<details><summary>Preview</summary><pre id="preview">No export yet.</pre></details>
+</main><script src="popup.js"></script></body></html>
