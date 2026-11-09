@@ -1,111 +1,776 @@
 importScripts('extractor.js');
-const TIMEOUT_MS = 18000;
+
+const JOB_KEY = 'storybookExportJob';
 const MAX_PAGES = 120;
-function sanitize(s) { return String(s || 'storybook').toLowerCase().normalize('NFKD').replace(/[^a-z0-9-_]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'storybook'; }
-function cell(s) { return String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim(); }
-function md(s) { return String(s ?? '').replace(/([\\`*_{}\[\]<>])/g, '\\$1').trim(); }
-function codeFence(s) { const runs = String(s).match(/`+/g) || []; return '`'.repeat(Math.max(3, ...runs.map(x => x.length + 1))); }
-function renderPage(page, options) {
-  const lines = ['## ' + md(page.title), '', 'Source: ' + page.url, ''];
-  if (page.description.length) lines.push('### Description', '', ...page.description.map(md), '');
-  if (page.headings.length) lines.push('### Sections', '', ...page.headings.map(h => ' '.repeat(Math.max(0, h.level - 2) * 2) + '- ' + md(h.text)), '');
-  if (options.props) {
-    page.tables.forEach((rows, i) => {
-      const width = Math.max(...rows.map(r => r.length));
-      if (!width) return;
-      lines.push('### Table ' + (i + 1), '', '| ' + Array.from({length:width}, (_,j) => cell(rows[0][j])).join(' | ') + ' |', '| ' + Array(width).fill('---').join(' | ') + ' |');
-      rows.slice(1).forEach(row => lines.push('| ' + Array.from({length:width}, (_,j) => cell(row[j])).join(' | ') + ' |'));
-      lines.push('');
-    });
+const NAVIGATION_TIMEOUT_MS = 20000;
+const READINESS_TIMEOUT_MS = 16000;
+const READINESS_POLL_MS = 250;
+const DEFAULT_CONCURRENCY = 2;
+let job = null;
+let runner = null;
+let persistQueue = Promise.resolve();
+
+const now = () => Date.now();
+const errorText = (error) => String(error?.message || error || 'Unknown error').slice(0, 500);
+const clone = (value) => JSON.parse(JSON.stringify(value));
+let currentExport = false;
+
+async function loadJob() {
+  if (job) return job;
+  const stored = await chrome.storage.local.get(JOB_KEY);
+  job = stored[JOB_KEY] || null;
+  return job;
+}
+
+function persist() {
+  if (!job) return Promise.resolve();
+  persistQueue = persistQueue.catch(() => {}).then(() => chrome.storage.local.set({ [JOB_KEY]: clone(job) }));
+  return persistQueue;
+}
+
+function progressState() {
+  if (!job) return { state: 'idle', processed: 0, total: 0, succeeded: 0, failed: 0, percent: 0 };
+  const entries = (job.entries || []).map(({ page, ...entry }) => entry);
+  const processed = entries.filter((entry) => entry.status === 'succeeded' || entry.status === 'failed').length;
+  const succeeded = entries.filter((entry) => entry.status === 'succeeded').length;
+  const failed = entries.filter((entry) => entry.status === 'failed').length;
+  const total = entries.length;
+  let percent = total ? Math.floor((processed / total) * 80) : 0;
+  if (job.state === 'discovering') percent = 1;
+  if (job.state === 'processing') percent = 85;
+  if (job.state === 'compressing') percent = 95;
+  if (job.state === 'completed') percent = 100;
+  return { ...clone({ ...job, entries }), processed, total, succeeded, failed, percent };
+}
+
+async function notifyPopup() {
+  await persist();
+  chrome.runtime.sendMessage({ action: 'JOB_UPDATED', job: progressState() }).catch(() => {});
+}
+
+function updateJob(patch) {
+  Object.assign(job, patch, { updatedAt: now() });
+  return notifyPopup();
+}
+
+function categoryFor(entry) {
+  const titleParts = String(entry.title || '').split(/[\\/]/).map((part) => part.trim()).filter(Boolean);
+  const tags = Array.isArray(entry.tags) ? entry.tags.map((tag) => String(tag).toLowerCase()) : [];
+  const labels = [...titleParts, ...tags].map((value) => value.toLowerCase());
+  if (labels.some((value) => /^(guide|guides|documentation|docs)$/.test(value))) return 'guides';
+  if (labels.some((value) => /^(form|forms)$/.test(value))) return 'form';
+  if (labels.some((value) => /^(component|components)$/.test(value))) return 'components';
+  return 'unclassified';
+}
+
+function slugSegment(value) {
+  let slug = String(value || '').normalize('NFKC').toLowerCase().trim()
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-')
+    .replace(/[^\p{L}\p{N}._-]+/gu, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .slice(0, 64);
+  if (!slug || slug === '.' || slug === '..') slug = 'page';
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(slug)) slug = '_' + slug;
+  return slug;
+}
+
+function hashId(value) {
+  let hash = 2166136261;
+  for (const char of String(value)) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
   }
-  if (options.tokens && page.tokens.length) {
-    lines.push('### Observed design tokens / styles', '', '| Name / label | Value / computed style |', '| --- | --- |');
-    for (const t of page.tokens) {
-      const value = t.name ? t.value : [t.color, t.background, t.font, t.fontSize, t.radius].filter(Boolean).join('; ');
-      lines.push('| ' + cell(t.name || t.label) + ' | ' + cell(value) + ' |');
-    }
-    lines.push('', '> Computed styles are observations, not confirmed canonical design tokens.', '');
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function assignPaths(entries) {
+  const used = new Set();
+  for (const entry of entries) {
+    const parts = String(entry.title || '').split(/[\\/]/).map((part) => part.trim()).filter(Boolean);
+    const category = categoryFor(entry);
+    let groups = [];
+    if (parts.length > 1 && /^(guides?|documentation|docs|forms?|components?)$/i.test(parts[0])) groups = parts.slice(1, -1);
+    else if (parts.length > 1 && category !== 'unclassified') groups = parts.slice(0, -1);
+    const base = slugSegment(entry.name || parts.at(-1) || entry.id);
+    const directory = [category, ...groups.map(slugSegment)].join('/');
+    const pathBase = `${directory}/${base}--${hashId(entry.id)}`;
+    let path = `${pathBase}.md`;
+    let collision = 1;
+    while (used.has(path)) path = `${pathBase}-${collision++}.md`;
+    used.add(path);
+    entry.category = category;
+    entry.path = path;
+    entry.titleSource = entry.title ? 'index-title' : entry.name ? 'index-name' : 'storybook-id';
+    entry.title = entry.title || entry.name || entry.id;
   }
-  if (options.examples && page.examples.length) {
-    lines.push('### Code examples', '');
-    for (const sample of page.examples) { const fence = codeFence(sample); lines.push(fence, sample, fence, ''); }
-  }
-  if (options.examples && page.guidelines.length) lines.push('### Lists and guidelines (observed)', '', ...page.guidelines.map(s => '- ' + md(s)), '');
-  return lines.join('\n');
 }
-function renderExport(pages, options, origin, warnings) {
-  return ['# Storybook Design System', '', 'Source: ' + origin, 'Extracted: ' + new Date().toISOString(), 'Pages: ' + pages.length, '', '> Content is extracted from rendered Storybook Docs, not inferred from source code.', '', ...pages.map(p => renderPage(p, options)), ...(warnings.length ? ['## Extraction warnings', '', ...warnings.map(w => '- ' + md(w)), ''] : [])].join('\n');
+
+function normalizeOptions(options) {
+  return { props: options?.props !== false, tokens: options?.tokens !== false, examples: options?.examples !== false };
 }
-async function extractFromTab(tabId, options) {
-  const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: extractStorybookDocument, args: [options] });
-  const pages = results.map(r => r.result).filter(Boolean);
-  if (!pages.length) throw new Error('No readable frame. Check permissions or page readiness.');
-  return pages.sort((a,b) => Number(b.foundDocs) - Number(a.foundDocs) || b.contentLength - a.contentLength)[0];
+
+async function discover(tabId, sourceUrl) {
+  const result = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (source) => {
+      const current = new URL(source);
+      const base = new URL('.', current);
+      const candidates = [new URL('index.json', base), new URL('stories.json', base), new URL('/index.json', current.origin), new URL('/stories.json', current.origin)];
+      const seen = new Set();
+      for (const url of candidates) {
+        if (seen.has(url.href)) continue;
+        seen.add(url.href);
+        try {
+          const response = await fetch(url, { credentials: 'same-origin' });
+          if (!response.ok) continue;
+          const json = await response.json();
+          const entries = json.entries || json.stories || {};
+          return { indexUrl: url.href, entries: Object.entries(entries).map(([id, entry]) => ({
+            id,
+            type: entry.type || (entry.isDocsOnly ? 'docs' : ''),
+            title: entry.title || entry.kind || '',
+            name: entry.name || '',
+            tags: Array.isArray(entry.tags) ? entry.tags : [],
+            importPath: entry.importPath || '',
+          })).filter((entry) => entry.type === 'docs') };
+        } catch { /* Probe the next supported index path. */ }
+      }
+      return { indexUrl: '', entries: [] };
+    },
+    args: [sourceUrl],
+  });
+  const payload = result[0]?.result || { indexUrl: '', entries: [] };
+  return { indexUrl: payload.indexUrl, entries: payload.entries.slice(0, MAX_PAGES), discovered: payload.entries.length };
 }
-async function discover(tabId, origin) {
-  const result = await chrome.scripting.executeScript({ target: { tabId }, func: async (base) => {
-    for (const path of ['/index.json', '/stories.json']) {
-      try {
-        const response = await fetch(new URL(path, base), { credentials: 'same-origin' });
-        if (!response.ok) continue;
-        const json = await response.json();
-        const entries = json.entries || json.stories || {};
-        return Object.entries(entries).filter(([,e]) => e.type === 'docs' || e.type === 'story' || e.type === 'root').map(([id,e]) => ({id, type:e.type, title:e.title || '', name:e.name || ''}));
-      } catch { /* Try next index location. */ }
-    }
-    return [];
-  }, args: [origin] });
-  return (result[0]?.result || []).filter(e => e.type === 'docs').slice(0, MAX_PAGES);
+
+function buildDocsUrl(sourceUrl, id) {
+  const target = new URL(sourceUrl);
+  target.searchParams.set('path', `/docs/${id}`);
+  target.hash = '';
+  return target.href;
 }
-function waitUntilComplete(tabId, expected, ms = TIMEOUT_MS) {
+
+function matchesDocsUrl(url, target) {
+  try {
+    const actual = new URL(url);
+    const expected = new URL(target);
+    return actual.origin === expected.origin && actual.pathname === expected.pathname && actual.searchParams.get('path') === expected.searchParams.get('path');
+  } catch { return false; }
+}
+
+function navigateTab(tabId, target) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error('Timed out: ' + expected)), ms);
-    const listener = (updatedId, info, tab) => {
-      if (updatedId === tabId && info.status === 'complete' && tab.url?.includes('path=/docs/')) finish(null);
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(listener);
+      error ? reject(error) : resolve();
     };
-    function finish(error) { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener); error ? reject(error) : resolve(); }
+    const listener = (updatedId, info, tab) => {
+      if (updatedId === tabId && info.status === 'complete' && matchesDocsUrl(tab.url || '', target)) finish();
+    };
+    const timer = setTimeout(() => finish(new Error(`Navigation timed out: ${target}`)), NAVIGATION_TIMEOUT_MS);
     chrome.tabs.onUpdated.addListener(listener);
-    chrome.tabs.get(tabId).then(tab => { if (tab.status === 'complete' && tab.url?.includes('path=/docs/')) finish(null); }).catch(finish);
+    chrome.tabs.update(tabId, { url: target }).then(async () => {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.status === 'complete' && matchesDocsUrl(tab.url || '', target)) finish();
+    }).catch(finish);
   });
 }
-async function exportMarkdown(message) {
-  const { tabId, tabUrl, scope, options } = message;
-  const origin = new URL(tabUrl).origin;
-  const warnings = [];
-  const pages = [];
-  if (scope === 'current') {
-    pages.push(await extractFromTab(tabId, options));
-    if (!pages[0].foundDocs) warnings.push('Storybook Docs wrapper not detected; extracted general page content.');
-  } else {
-    const entries = await discover(tabId, origin);
-    if (!entries.length) throw new Error('No Docs entries found at /index.json or /stories.json. Use Current page mode.');
-    if (entries.length === MAX_PAGES) warnings.push('Limited to the first ' + MAX_PAGES + ' Docs entries.');
-    let temp;
-    try {
-      temp = await chrome.tabs.create({ url: 'about:blank', active: false });
-      for (const entry of entries) {
-        const target = origin + '/?path=/docs/' + encodeURIComponent(entry.id);
-        try {
-          await chrome.tabs.update(temp.id, { url: target });
-          await waitUntilComplete(temp.id, target);
-          await new Promise(resolve => setTimeout(resolve, 900));
-          const page = await extractFromTab(temp.id, options);
-          if (!page.foundDocs) warnings.push(entry.id + ': Docs wrapper not found (page may be loading or inaccessible).');
-          page.title ||= entry.title;
-          pages.push(page);
-        } catch (error) { warnings.push(entry.id + ': ' + error.message); }
-      }
-    } finally { if (temp?.id) await chrome.tabs.remove(temp.id).catch(() => {}); }
-    if (!pages.length) throw new Error('Failed to extract all ' + entries.length + ' discovered Docs entries.');
-  }
-  const markdown = renderExport(pages, options, origin, warnings);
-  const filename = 'storybook-' + scope + '-' + sanitize(new URL(tabUrl).hostname) + '-' + new Date().toISOString().slice(0,10) + '.md';
-  const dataUrl = 'data:text/markdown;charset=utf-8,' + encodeURIComponent(markdown);
-  await chrome.downloads.download({ url: dataUrl, filename, saveAs: true, conflictAction: 'uniquify' });
-  return { filename, pages: pages.length, failures: warnings.length, preview: markdown.slice(0, 8000) };
+
+function isDocsReady(expectedId) {
+  const params = new URLSearchParams(location.search);
+  const route = params.get('path') || '';
+  const id = route.replace(/^\/docs\//, '');
+  const root = document.querySelector('.sbdocs-wrapper, .sbdocs-content, #storybook-docs, [data-testid="storybook-docs"]');
+  if (!root || id !== expectedId) return { ready: false, id, length: 0 };
+  if (root.matches?.('[aria-busy="true"]') || root.querySelector('[aria-busy="true"], .sb-preparing-story, [data-testid*="loading"], [data-testid*="loader"]')) return { ready: false, id, length: 0 };
+  const value = String(root.innerText || root.textContent || '').replace(/\s+/g, ' ').trim();
+  return { ready: value.length > 0, id, length: value.length, signature: `${document.title}|${value.slice(0, 240)}|${value.length}` };
 }
+
+async function waitForDocsReady(tabId, entry) {
+  const started = now();
+  let previous = '';
+  let stableCount = 0;
+  while (now() - started < READINESS_TIMEOUT_MS) {
+    if (job.cancelRequested) throw new Error('Cancelled after active page settled.');
+    const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: isDocsReady, args: [entry.id] });
+    const probes = results.map((result) => ({ frameId: result.frameId, ...(result.result || {}) })).filter((result) => result.ready);
+    probes.sort((a, b) => a.frameId - b.frameId);
+    if (probes.length) {
+      const signature = `${probes[0].frameId}:${probes[0].signature}`;
+      stableCount = signature === previous ? stableCount + 1 : 1;
+      previous = signature;
+      if (stableCount >= 3) return;
+    } else {
+      previous = '';
+      stableCount = 0;
+    }
+    await new Promise((resolve) => setTimeout(resolve, READINESS_POLL_MS));
+  }
+  throw new Error(`Docs readiness timed out after ${READINESS_TIMEOUT_MS / 1000}s (expected ID: ${entry.id}).`);
+}
+
+async function extractFromTab(tabId, options, expectedId = '') {
+  const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: extractStorybookDocument, args: [options] });
+  const pages = results.map((result) => ({ frameId: result.frameId, ...(result.result || {}) })).filter((page) => page.title || page.contentLength);
+  if (!pages.length) throw new Error('No readable frame. Check site permissions and Docs readiness.');
+  pages.sort((a, b) => Number(b.foundDocs) - Number(a.foundDocs) || Number(a.frameId) - Number(b.frameId) || b.contentLength - a.contentLength);
+  const page = pages[0];
+  if (expectedId && !page.foundDocs) throw new Error(`Storybook Docs wrapper not found for ${expectedId}.`);
+  return page;
+}
+
+async function closeWorkerTabs() {
+  if (!job?.tabIds?.length) return { ok: true, remaining: [] };
+  const ids = [...job.tabIds];
+  const remaining = [];
+  for (const id of ids) {
+    await chrome.tabs.remove(id).catch(() => {});
+    try { if (await chrome.tabs.get(id)) remaining.push(id); } catch { /* The owned tab is gone. */ }
+  }
+  job.tabIds = job.tabIds.filter((id) => !ids.includes(id)).concat(remaining);
+  if (!remaining.length) job.cleanupCompletedAt = now();
+  await persist();
+  return { ok: remaining.length === 0, remaining };
+}
+
+async function makeSlot() {
+  const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
+  job.tabIds.push(tab.id);
+  await persist();
+  return tab.id;
+}
+
+async function processEntry(entry, tabId) {
+  entry.status = 'running';
+  entry.attempts = (entry.attempts || 0) + 1;
+  entry.startedAt = now();
+  entry.error = '';
+  entry.history ||= [];
+  entry.history.push({ attempt: entry.attempts, status: 'running', startedAt: entry.startedAt });
+  job.currentPage = { id: entry.id, title: entry.title };
+  job.state = 'crawling';
+  job.phase = `Loading ${entry.title}`;
+  await notifyPopup();
+  const target = buildDocsUrl(job.sourceUrl, entry.id);
+  await navigateTab(tabId, target);
+  await waitForDocsReady(tabId, entry);
+  if (job.cancelRequested) throw new Error('Cancelled after active page settled.');
+  const page = await extractFromTab(tabId, job.options, entry.id);
+  page.entryId = entry.id;
+  page.entryTitle = entry.title;
+  page.entryName = entry.name;
+  page.entryTags = entry.tags;
+  page.sourceUrl = page.url;
+  page.category = entry.category;
+  page.path = entry.path;
+  page.frameId = page.frameId ?? 0;
+  entry.page = page;
+  entry.status = 'succeeded';
+  entry.completedAt = now();
+  entry.history.at(-1).status = 'succeeded';
+  entry.history.at(-1).completedAt = entry.completedAt;
+  job.lastError = '';
+  await notifyPopup();
+}
+
+async function crawlPool() {
+  let cursor = 0;
+  const pending = job.entries.map((entry, index) => entry.status === 'queued' || entry.status === 'retrying' ? index : -1).filter((index) => index >= 0);
+  const width = Math.max(1, Math.min(3, Number(job.concurrency) || DEFAULT_CONCURRENCY));
+  const worker = async () => {
+    let tabId;
+    while (!job.pauseRequested && !job.cancelRequested) {
+      const workIndex = pending[cursor++];
+      if (workIndex === undefined) return;
+      const entry = job.entries[workIndex];
+      try {
+        tabId ||= await makeSlot();
+        if (job.pauseRequested || job.cancelRequested) return;
+        await processEntry(entry, tabId);
+      } catch (error) {
+        if (job.cancelRequested) {
+          entry.status = 'queued';
+          entry.error = '';
+          if (entry.history?.length) {
+            entry.history.at(-1).status = 'cancelled';
+            entry.history.at(-1).completedAt = now();
+          }
+        } else {
+          entry.status = 'failed';
+          entry.error = errorText(error);
+          entry.completedAt = now();
+          if (entry.history?.length) {
+            entry.history.at(-1).status = 'failed';
+            entry.history.at(-1).error = entry.error;
+            entry.history.at(-1).completedAt = entry.completedAt;
+          }
+          job.lastError = `${entry.id}: ${entry.error}`;
+          await notifyPopup();
+        }
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(width, pending.length || 1) }, () => worker()));
+}
+
+function zipFilesFor(jobSnapshot) {
+  const successful = jobSnapshot.entries.filter((entry) => entry.status === 'succeeded' && entry.page);
+  const tokens = new Map();
+  for (const entry of successful) {
+    for (const token of entry.page.tokens || []) {
+      const key = token.name ? `css:${token.name}\u0000${token.value}` : `computed:${token.label}\u0000${token.color}\u0000${token.background}\u0000${token.font}\u0000${token.fontSize}\u0000${token.radius}`;
+      if (!tokens.has(key)) tokens.set(key, { ...token, kind: token.name ? 'css-custom-property' : 'computed-style', sources: [] });
+      const source = { id: entry.id, path: entry.path, url: entry.page.sourceUrl, frameId: entry.page.frameId };
+      if (!tokens.get(key).sources.some((existing) => existing.id === source.id && existing.frameId === source.frameId)) tokens.get(key).sources.push(source);
+    }
+  }
+  const cssValues = new Map();
+  for (const token of tokens.values()) if (token.name) {
+    if (!cssValues.has(token.name)) cssValues.set(token.name, new Set());
+    cssValues.get(token.name).add(token.value);
+  }
+  for (const token of tokens.values()) if (token.name) token.conflict = cssValues.get(token.name).size > 1;
+  const manifestEntries = jobSnapshot.entries.map(({ id, type, title, titleSource, name, tags, importPath, category, path, status, attempts, error, history, page }) => ({
+    id, type, title, titleSource, name, tags, importPath, category, path, status, attempts, error: error || '', history: history || [], sourceUrl: page?.sourceUrl || buildDocsUrl(jobSnapshot.sourceUrl, id),
+  }));
+  const manifest = {
+    schemaVersion: 1,
+    exporterVersion: '0.2.0',
+    jobId: jobSnapshot.id,
+    sourceOrigin: new URL(jobSnapshot.sourceUrl).origin,
+    sourceUrl: jobSnapshot.sourceUrl,
+    indexUrl: jobSnapshot.indexUrl,
+    startedAt: new Date(jobSnapshot.startedAt).toISOString(),
+    completedAt: new Date().toISOString(),
+    options: jobSnapshot.options,
+    concurrency: jobSnapshot.concurrency,
+    counts: { discovered: jobSnapshot.discoveredCount, selected: jobSnapshot.entries.length, succeeded: successful.length, failed: jobSnapshot.entries.length - successful.length, omitted: Math.max(0, jobSnapshot.discoveredCount - jobSnapshot.entries.length) },
+    entries: manifestEntries,
+    tokenObservations: [...tokens.values()].sort((a, b) => String(a.name || a.label).localeCompare(String(b.name || b.label)) || String(a.value || '').localeCompare(String(b.value || ''))),
+  };
+  const indexLines = ['# Storybook Docs index', '', `Source: ${jobSnapshot.sourceUrl}`, '', '## Pages', ''];
+  for (const category of ['guides', 'components', 'form', 'unclassified']) {
+    const group = successful.filter((entry) => entry.category === category);
+    if (!group.length) continue;
+    indexLines.push(`### ${category}`, '');
+    for (const entry of group) indexLines.push(`- [${entry.title.replace(/[\[\]]/g, '\\$&')}](${entry.path}) — ID: \`${entry.id}\` · [Source](${entry.page.sourceUrl})`);
+    indexLines.push('');
+  }
+  indexLines.push('- [Shared observed tokens](tokens/design-tokens.md)', '- [Extraction report](EXTRACTION_REPORT.md)', '');
+  const failures = jobSnapshot.entries.filter((entry) => entry.status === 'failed');
+  const reportLines = ['# Extraction report', '', `Job: \`${jobSnapshot.id}\``, `Source: ${jobSnapshot.sourceUrl}`, `Discovered: ${jobSnapshot.discoveredCount}`, `Selected: ${jobSnapshot.entries.length}`, `Succeeded: ${successful.length}`, `Failed: ${failures.length}`, `Omitted by cap: ${Math.max(0, jobSnapshot.discoveredCount - jobSnapshot.entries.length)}`, '', '## Page outcomes', ''];
+  for (const entry of jobSnapshot.entries) {
+    const outcomes = (entry.history || []).map((attempt) => `#${attempt.attempt} ${attempt.status}${attempt.error ? ` (${attempt.error})` : ''}`).join(', ');
+    reportLines.push(`- \`${entry.id}\` (${entry.title}): ${entry.status}; attempts ${entry.attempts || 0}${outcomes ? `; history: ${outcomes}` : ''}${entry.error ? `; latest error: ${entry.error}` : ''}`);
+  }
+  reportLines.push('', '> Token and computed-style values are observations from rendered pages, not confirmed canonical design tokens.', '');
+  const files = [
+    { path: 'guides/', content: '' },
+    { path: 'components/', content: '' },
+    { path: 'form/', content: '' },
+    { path: 'unclassified/', content: '' },
+    { path: 'tokens/', content: '' },
+    { path: 'README.md', content: `# Storybook Docs export\n\nSource: ${jobSnapshot.sourceUrl}\n\nThis archive contains rendered Docs observations. It does not infer unavailable component metadata, prop types, or defaults. Unknown category metadata is kept under \`unclassified/\`.\n\nToken and computed-style observations are not canonical design-token claims. See [INDEX.md](INDEX.md), [tokens/design-tokens.md](tokens/design-tokens.md), and [EXTRACTION_REPORT.md](EXTRACTION_REPORT.md).\n` },
+    { path: 'INDEX.md', content: indexLines.join('\n') },
+    { path: 'manifest.json', content: JSON.stringify(manifest, null, 2) + '\n' },
+    { path: 'EXTRACTION_REPORT.md', content: reportLines.join('\n') },
+    { path: 'tokens/README.md', content: '# Shared token observations\n\nValues below are observations, not canonical design tokens. Each row preserves source page provenance.\n' },
+    { path: 'tokens/design-tokens.md', content: renderTokens([...tokens.values()]) },
+  ];
+  for (const entry of successful) files.push({ path: entry.path, content: renderStoryPage(entry.page, jobSnapshot.options) });
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function renderTokens(tokens) {
+  const lines = ['# Observed design token and style values', '', '> These are runtime observations, not confirmed canonical design tokens.', ''];
+  for (const token of tokens.sort((a, b) => String(a.name || a.label).localeCompare(String(b.name || b.label)) || String(a.value || '').localeCompare(String(b.value || '')))) {
+    const value = token.name ? token.value : [token.color, token.background, token.font, token.fontSize, token.radius].filter(Boolean).join('; ');
+    lines.push(`## ${token.name || token.label || 'Unlabelled computed style'}`, '', `- Kind: ${token.kind}`, `- Value: ${String(value || '').replace(/\n/g, ' ')}`);
+    if (token.conflict) lines.push('- Conflict: this CSS variable was observed with multiple values across pages.');
+    lines.push('- Sources:');
+    for (const source of token.sources) lines.push(`  - [${source.id}](${source.path}) · frame ${source.frameId} · ${source.url}`);
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+function renderStoryPage(page, options) {
+  const lines = [`# ${page.title || page.entryTitle}`, '', `Storybook ID: \`${page.entryId}\``, `Source: ${page.sourceUrl}`, `Category: ${page.category}`, `Frame: ${page.frameId}`, ''];
+  if (page.description?.length) lines.push('## Description', '', ...page.description.map((text) => md(text)), '');
+  if (page.headings?.length) lines.push('## Sections', '', ...page.headings.map((heading) => `${'  '.repeat(Math.max(0, heading.level - 2))}- ${md(heading.text)}`), '');
+  const tableGroups = [
+    ['Props and variants', options.props ? page.propsTables || [] : []],
+    ['Rendered tables', options.props ? page.renderedTables || [] : []],
+    ['Unclassified tables', options.props ? page.unknownTables || [] : []],
+  ];
+  for (const [title, tables] of tableGroups) for (const table of tables) {
+    lines.push(`## ${title}`, '', `Observed classification: ${table.classification} (${table.confidence})`, `Evidence: ${table.reason}`, '');
+    lines.push(...renderTable(table.rows), '');
+  }
+  if (options.examples && page.examples?.length) {
+    lines.push('## Examples', '');
+    for (const example of page.examples) {
+      const sample = typeof example === 'string' ? example : example.code;
+      const ticks = Math.max(2, ...[...(sample.matchAll(/`+/g))].map((match) => match[0].length)) + 1;
+      const fence = '`'.repeat(Math.max(3, ticks));
+      lines.push(`${fence}${example.language ? example.language : ''}`, sample, fence, '');
+    }
+  }
+  if (options.examples && page.guidelines?.length) {
+    lines.push('## Guidelines and notes', '');
+    for (const item of page.guidelines) lines.push(`### ${md(item.heading || 'Observed guidance')}`, '', item.text, '');
+  }
+  return lines.join('\n');
+}
+
+function renderTable(rows) {
+  if (!rows?.length) return ['(No table rows were returned.)'];
+  const width = Math.max(1, ...rows.map((row) => row.length));
+  const lines = [`| ${Array.from({ length: width }, (_, index) => cell(rows[0][index])).join(' | ')} |`, `| ${Array(width).fill('---').join(' | ')} |`];
+  for (const row of rows.slice(1)) lines.push(`| ${Array.from({ length: width }, (_, index) => cell(row[index])).join(' | ')} |`);
+  return lines;
+}
+
+function md(value) { return String(value ?? '').replace(/([\\`*_{}\[\]<>])/g, '\\$1').trim(); }
+function cell(value) { return String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim(); }
+
+async function createZipUrl(files) {
+  let exists = false;
+  if (chrome.runtime.getContexts) {
+    const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [chrome.runtime.getURL('offscreen.html')] });
+    exists = contexts.length > 0;
+  } else {
+    const clientsList = await clients.matchAll();
+    exists = clientsList.some((client) => client.url === chrome.runtime.getURL('offscreen.html'));
+  }
+  if (!exists) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['BLOBS'], justification: 'Package the user-requested Storybook Markdown files into one ZIP download.' });
+  const response = await chrome.runtime.sendMessage({ action: 'MAKE_ZIP', files });
+  if (!response?.ok) throw new Error(response?.error || 'ZIP packaging failed.');
+  return response.url;
+}
+
+async function waitForDownload(downloadId, url) {
+  const getState = async () => {
+    const results = await chrome.downloads.search({ url });
+    const item = results.find((candidate) => candidate.id === downloadId);
+    return item?.state || 'in_progress';
+  };
+  const initial = await getState();
+  if (initial === 'complete' || initial === 'interrupted') return initial;
+  return new Promise((resolve) => {
+    const listener = (delta) => {
+      if (delta.id !== downloadId || !['complete', 'interrupted'].includes(delta.state?.current)) return;
+      chrome.downloads.onChanged.removeListener(listener);
+      resolve(delta.state.current);
+    };
+    chrome.downloads.onChanged.addListener(listener);
+    getState().then((state) => {
+      if (state === 'complete' || state === 'interrupted') {
+        chrome.downloads.onChanged.removeListener(listener);
+        resolve(state);
+      }
+    }).catch(() => {});
+  });
+}
+
+async function releaseArchiveUrl(url) {
+  if (!url) return closeOffscreenDocument();
+  try {
+    await chrome.runtime.sendMessage({ action: 'REVOKE_URL', url });
+    if (chrome.runtime.getContexts) {
+      const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [chrome.runtime.getURL('offscreen.html')] });
+      if (contexts.length) await chrome.offscreen.closeDocument();
+    } else {
+      const clientsList = await clients.matchAll();
+      if (clientsList.some((client) => client.url === chrome.runtime.getURL('offscreen.html'))) await chrome.offscreen.closeDocument();
+    }
+  } catch { /* A later extension startup can close the remaining offscreen context. */ }
+}
+
+async function closeOffscreenDocument() {
+  try {
+    if (chrome.runtime.getContexts) {
+      const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [chrome.runtime.getURL('offscreen.html')] });
+      if (contexts.length) await chrome.offscreen.closeDocument();
+    } else {
+      const clientsList = await clients.matchAll();
+      if (clientsList.some((client) => client.url === chrome.runtime.getURL('offscreen.html'))) await chrome.offscreen.closeDocument();
+    }
+  } catch { /* The offscreen document may already be gone. */ }
+}
+
+async function downloadCurrent(message) {
+  const options = normalizeOptions(message.options);
+  const page = await extractFromTab(message.tabId, options);
+  const output = renderCurrent([page], options, new URL(message.tabUrl).origin, page.foundDocs ? [] : ['Storybook Docs wrapper not detected; extracted general page content.']);
+  const filename = `storybook-current-${slugSegment(new URL(message.tabUrl).hostname)}-${new Date().toISOString().slice(0, 10)}.md`;
+  const url = `data:text/markdown;charset=utf-8,${encodeURIComponent(output)}`;
+  await chrome.downloads.download({ url, filename, saveAs: true, conflictAction: 'uniquify' });
+  return { filename, pages: 1, preview: output.slice(0, 8000) };
+}
+
+function renderCurrent(pages, options, origin, warnings) {
+  const lines = ['# Storybook Design System', '', `Source: ${origin}`, `Extracted: ${new Date().toISOString()}`, `Pages: ${pages.length}`, '', '> Content is extracted from rendered Storybook Docs, not inferred from source code.', ''];
+  for (const page of pages) lines.push(`## ${md(page.title)}`, '', `Source: ${page.url}`, '', ...(page.description.length ? ['### Description', '', ...page.description.map(md), ''] : []), ...(page.headings.length ? ['### Sections', '', ...page.headings.map((heading) => `${' '.repeat(Math.max(0, heading.level - 2) * 2)}- ${md(heading.text)}`), ''] : []), ...(options.props ? page.tables.flatMap((table, index) => [`### Table ${index + 1}`, '', ...renderTable(table.rows || table), '']) : []), ...(options.tokens && page.tokens.length ? ['### Observed design tokens / styles', '', '| Name / label | Value / computed style |', '| --- | --- |', ...page.tokens.map((token) => `| ${cell(token.name || token.label)} | ${cell(token.name ? token.value : [token.color, token.background, token.font, token.fontSize, token.radius].filter(Boolean).join('; '))} |`), '', '> Computed styles are observations, not confirmed canonical design tokens.', ''] : []), ...(options.examples && page.examples.length ? ['### Code examples', '', ...page.examples.flatMap((example) => { const sample = typeof example === 'string' ? example : example.code; const fence = '`'.repeat(Math.max(3, ...[...(sample.matchAll(/`+/g))].map((match) => match[0].length + 1))); return [fence, sample, fence, '']; })] : []), ...(options.examples && page.guidelines.length ? ['### Lists and guidelines (observed)', '', ...page.guidelines.map((item) => `- ${md(typeof item === 'string' ? item : item.text)}`), ''] : []));
+  if (warnings.length) lines.push('## Extraction warnings', '', ...warnings.map((warning) => `- ${md(warning)}`), '');
+  return lines.join('\n');
+}
+
+async function runAll() {
+  if (runner) return runner;
+  runner = (async () => {
+    try {
+      if (job.cancelRequested) {
+        const cleanup = await closeWorkerTabs();
+        const state = cleanup.ok ? 'cancelled' : 'failed';
+        await updateJob({ state, phase: cleanup.ok ? 'Cancelled; temporary tabs closed' : `Cancellation cleanup failed for tabs ${cleanup.remaining.join(', ')}`, currentPage: null, cancelRequested: false });
+        return;
+      }
+      if (job.state === 'discovering') {
+        const found = await discover(job.sourceTabId, job.sourceUrl);
+        job.indexUrl = found.indexUrl;
+        job.discoveredCount = found.discovered;
+        job.entries = found.entries;
+        if (job.discoveredCount > MAX_PAGES) job.warnings.push(`Limited to first ${MAX_PAGES} of ${job.discoveredCount} Docs entries.`);
+        assignPaths(job.entries);
+        for (const entry of job.entries) { entry.status = 'queued'; entry.attempts = 0; entry.error = ''; }
+        await updateJob({ state: 'crawling', phase: `Crawling ${job.entries.length} Docs entries`, currentPage: null });
+        if (!job.entries.length) throw new Error('No Docs entries found in the Storybook index.');
+      }
+      if (job.cancelRequested) {
+        const cleanup = await closeWorkerTabs();
+        const state = cleanup.ok ? 'cancelled' : 'failed';
+        await updateJob({ state, phase: cleanup.ok ? 'Cancelled; temporary tabs closed' : `Cancellation cleanup failed for tabs ${cleanup.remaining.join(', ')}`, currentPage: null, cancelRequested: false });
+        return;
+      }
+      if (job.state === 'compressing' && job.downloadId && job.downloadUrl) {
+        const downloadState = await waitForDownload(job.downloadId, job.downloadUrl);
+        await releaseArchiveUrl(job.downloadUrl);
+        if (job.cancelRequested || downloadState === 'interrupted') {
+          const cancelled = job.cancelRequested;
+          await updateJob({ state: cancelled ? 'cancelled' : 'failed', phase: cancelled ? 'Cancelled; temporary tabs closed' : 'ZIP download failed', currentPage: null, cancelRequested: false, lastError: cancelled ? '' : 'Chrome interrupted the ZIP download.' });
+        } else {
+          await updateJob({ state: 'completed', phase: 'ZIP download completed', currentPage: null, completedAt: now() });
+        }
+        return;
+      }
+      if (job.state === 'compressing' && job.downloadUrl && !job.downloadId) {
+        await releaseArchiveUrl(job.downloadUrl);
+        job.downloadUrl = '';
+      }
+      await crawlPool();
+      if (job.pauseRequested) {
+        const cleanup = await closeWorkerTabs();
+        if (!cleanup.ok) throw new Error(`Could not close temporary tabs: ${cleanup.remaining.join(', ')}`);
+        await updateJob({ state: 'paused', phase: 'Paused; temporary tabs closed', currentPage: null, pauseRequested: false });
+        return;
+      }
+      if (job.cancelRequested) {
+        const cleanup = await closeWorkerTabs();
+        const state = cleanup.ok ? 'cancelled' : 'failed';
+        await updateJob({ state, phase: cleanup.ok ? 'Cancelled; temporary tabs closed' : `Cancellation cleanup failed for tabs ${cleanup.remaining.join(', ')}`, currentPage: null, cancelRequested: false });
+        return;
+      }
+      const cleanup = await closeWorkerTabs();
+      if (!cleanup.ok) throw new Error(`Could not close temporary tabs: ${cleanup.remaining.join(', ')}`);
+      await updateJob({ state: 'processing', phase: 'Classifying pages and deduplicating token observations', currentPage: null });
+      const files = zipFilesFor(job);
+      await updateJob({ state: 'compressing', phase: 'Building ZIP archive (uncompressed entries)', currentPage: null, downloadId: null, downloadUrl: '' });
+      const url = await createZipUrl(files);
+      if (job.cancelRequested) {
+        await releaseArchiveUrl(url);
+        await updateJob({ state: 'cancelled', phase: 'Cancelled; temporary tabs closed', currentPage: null, cancelRequested: false });
+        return;
+      }
+      await updateJob({ downloadUrl: url });
+      const filename = `storybook-all-${slugSegment(new URL(job.sourceUrl).hostname)}-${new Date().toISOString().slice(0, 10)}.zip`;
+      const downloadId = await chrome.downloads.download({ url, filename, saveAs: true, conflictAction: 'uniquify' });
+      await updateJob({ state: 'compressing', phase: 'Waiting for ZIP download to finish', currentPage: null, downloadId, downloadUrl: url });
+      if (job.cancelRequested) await chrome.downloads.cancel(downloadId).catch(() => {});
+      const downloadState = await waitForDownload(downloadId, url);
+      if (job.cancelRequested || downloadState === 'interrupted') {
+        await releaseArchiveUrl(url);
+        const cancelled = job.cancelRequested;
+        await updateJob({ state: cancelled ? 'cancelled' : 'failed', phase: cancelled ? 'Cancelled; temporary tabs closed' : 'ZIP download failed', currentPage: null, completedAt: now(), cancelRequested: false, lastError: cancelled ? '' : 'Chrome interrupted the ZIP download.' });
+      } else {
+        await releaseArchiveUrl(url);
+        await updateJob({ state: 'completed', phase: 'ZIP download completed', currentPage: null, completedAt: now(), cancelRequested: false, pauseRequested: false });
+      }
+    } catch (error) {
+      const message = errorText(error);
+      const cleanup = await closeWorkerTabs();
+      await releaseArchiveUrl(job.downloadUrl);
+      const state = job.cancelRequested && cleanup.ok ? 'cancelled' : 'failed';
+      const detail = cleanup.ok ? message : `${message}; temporary tabs remain open: ${cleanup.remaining.join(', ')}`;
+      await updateJob({ state, phase: state === 'cancelled' ? 'Cancelled; temporary tabs closed' : 'Export failed', lastError: detail, currentPage: null, downloadUrl: '', cancelRequested: false, pauseRequested: false });
+    } finally {
+      runner = null;
+    }
+  })();
+  return runner;
+}
+
+async function scheduleRunner() {
+  const pending = runner;
+  if (pending) await pending.catch(() => {});
+  return runAll();
+}
+
+async function startAll(message) {
+  await loadJob();
+  if (currentExport) return { ok: false, error: 'A Current Docs export is already running.' };
+  if (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) return { ok: true, duplicate: true, job: progressState() };
+  if (job && job.state === 'paused') return { ok: false, error: 'Resume or cancel the paused job before starting another export.' };
+  const previousCleanup = await closeWorkerTabs();
+  if (!previousCleanup.ok) return { ok: false, error: `Close or retry cleanup for temporary tabs ${previousCleanup.remaining.join(', ')} first.` };
+  job = {
+    id: `job-${now()}-${Math.random().toString(36).slice(2, 8)}`,
+    state: 'discovering', phase: 'Discovering Storybook Docs metadata',
+    sourceTabId: message.tabId, sourceUrl: message.tabUrl, indexUrl: '',
+    options: normalizeOptions(message.options), concurrency: Math.max(1, Math.min(3, Number(message.concurrency) || DEFAULT_CONCURRENCY)),
+    entries: [], discoveredCount: 0, warnings: [], tabIds: [], currentPage: null,
+    createdAt: now(), startedAt: now(), updatedAt: now(), pauseRequested: false, cancelRequested: false,
+  };
+  await notifyPopup();
+  void scheduleRunner();
+  return { ok: true, job: progressState() };
+}
+
+async function resumeJob() {
+  await loadJob();
+  if (!job) return { ok: false, error: 'There is no saved export to resume.' };
+  if (['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) {
+    if (!runner) {
+      const cleanup = await closeWorkerTabs();
+      if (!cleanup.ok) return { ok: false, error: `Cannot resume until temporary tabs close: ${cleanup.remaining.join(', ')}` };
+      for (const entry of job.entries) if (entry.status === 'running') entry.status = 'queued';
+      job.pauseRequested = false;
+      job.cancelRequested = false;
+      void scheduleRunner();
+    }
+    return { ok: true, job: progressState() };
+  }
+  if (!['paused', 'failed', 'cancelled'].includes(job.state)) return { ok: false, error: 'This job is not resumable.' };
+  const cleanup = await closeWorkerTabs();
+  if (!cleanup.ok) return { ok: false, error: `Cannot resume until temporary tabs close: ${cleanup.remaining.join(', ')}` };
+  for (const entry of job.entries) if (entry.status === 'failed') entry.status = 'queued';
+  job.pauseRequested = false;
+  job.cancelRequested = false;
+  job.state = job.entries.length ? 'crawling' : 'discovering';
+  job.phase = job.entries.length ? 'Resuming saved Docs entries' : 'Discovering Storybook Docs metadata';
+  job.lastError = '';
+  await notifyPopup();
+  void scheduleRunner();
+  return { ok: true, job: progressState() };
+}
+
+async function controlJob(action, id) {
+  await loadJob();
+  if (!job) return { ok: false, error: 'No export job is available.' };
+  if (action === 'PAUSE') {
+    if (job.state !== 'crawling') return { ok: false, error: 'Pause is available while crawling.' };
+    job.pauseRequested = true;
+    job.phase = 'Pausing after active page work settles';
+    await notifyPopup();
+    if (!runner) void scheduleRunner();
+    return { ok: true, job: progressState() };
+  }
+  if (action === 'CANCEL') {
+    if (!['discovering', 'crawling', 'processing', 'compressing', 'paused', 'failed'].includes(job.state)) return { ok: false, error: 'This job cannot be cancelled now.' };
+    job.cancelRequested = true;
+    job.pauseRequested = false;
+    job.phase = 'Cancelling; waiting for active work and tab cleanup';
+    await notifyPopup();
+    if (!runner && job.state !== 'paused' && job.state !== 'failed') void scheduleRunner();
+    if (job.downloadId && job.state === 'compressing') await chrome.downloads.cancel(job.downloadId).catch(() => {});
+    if (job.state === 'paused' || job.state === 'failed') {
+      const cleanup = await closeWorkerTabs();
+      const state = cleanup.ok ? 'cancelled' : 'failed';
+      await updateJob({ state, phase: cleanup.ok ? 'Cancelled; temporary tabs closed' : `Cancellation cleanup failed for tabs ${cleanup.remaining.join(', ')}`, lastError: cleanup.ok ? '' : cleanup.remaining.join(', '), cancelRequested: false, currentPage: null });
+    }
+    return { ok: true, job: progressState() };
+  }
+  if (action === 'RETRY_ENTRY') {
+    if (runner && !['paused', 'failed', 'completed', 'cancelled'].includes(job.state)) return { ok: false, error: 'Wait for the active crawl to pause or finish before retrying a page.' };
+    const cleanup = await closeWorkerTabs();
+    if (!cleanup.ok) return { ok: false, error: `Cannot retry until temporary tabs close: ${cleanup.remaining.join(', ')}` };
+    const entry = job.entries.find((candidate) => candidate.id === id);
+    if (!entry || entry.status !== 'failed') return { ok: false, error: 'Only a failed Docs entry can be retried.' };
+    entry.status = 'retrying';
+    entry.error = '';
+    job.state = 'crawling';
+    job.phase = `Retrying ${entry.title}`;
+    job.lastError = '';
+    job.pauseRequested = false;
+    job.cancelRequested = false;
+    await notifyPopup();
+    void scheduleRunner();
+    return { ok: true, job: progressState() };
+  }
+  return { ok: false, error: 'Unknown job action.' };
+}
+
+async function getJob() {
+  await loadJob();
+  if (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state) && !runner) {
+    const cleanup = await closeWorkerTabs();
+    if (!cleanup.ok) {
+      await updateJob({ state: 'failed', phase: 'Recovery cleanup failed', lastError: `Temporary tabs remain open: ${cleanup.remaining.join(', ')}` });
+      return progressState();
+    }
+    for (const entry of job.entries) if (entry.status === 'running') entry.status = 'queued';
+    void scheduleRunner();
+  }
+  return progressState();
+}
+
+chrome.downloads.onChanged.addListener((delta) => {
+  if (!delta.state || !['complete', 'interrupted'].includes(delta.state.current)) return;
+  loadJob().then(async () => {
+    if (job?.downloadId !== delta.id || !job.downloadUrl) return;
+    await releaseArchiveUrl(job.downloadUrl);
+    job.downloadUrl = '';
+    await persist();
+  }).catch(() => {});
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.action !== 'EXPORT') return;
-  exportMarkdown(message).then(result => sendResponse({ ok:true, ...result })).catch(error => sendResponse({ ok:false, error: error.message }));
+  if (message?.action === 'MAKE_ZIP' || message?.action === 'REVOKE_URL') return;
+  (async () => {
+    if (message?.action === 'GET_JOB') return { ok: true, job: await getJob() };
+    if (message?.action === 'START_ALL') return startAll(message);
+    if (message?.action === 'RESUME') return resumeJob();
+    if (['PAUSE', 'CANCEL', 'RETRY_ENTRY'].includes(message?.action)) return controlJob(message.action, message.id);
+    if (message?.action === 'EXPORT_CURRENT') {
+      await loadJob();
+      if (currentExport || (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state))) return { ok: false, error: 'Another export job is already active.' };
+      const cleanup = await closeWorkerTabs();
+      if (!cleanup.ok) return { ok: false, error: `Close temporary tabs ${cleanup.remaining.join(', ')} before exporting.` };
+      currentExport = true;
+      try { return { ok: true, ...(await downloadCurrent(message)) }; }
+      finally { currentExport = false; }
+    }
+    return { ok: false, error: 'Unsupported action.' };
+  })().then(sendResponse).catch((error) => sendResponse({ ok: false, error: errorText(error) }));
   return true;
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  loadJob().then(async () => {
+    if (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) {
+      const cleanup = await closeWorkerTabs();
+      if (!cleanup.ok) {
+        await updateJob({ state: 'failed', phase: 'Startup cleanup failed', lastError: `Temporary tabs remain open: ${cleanup.remaining.join(', ')}` });
+        return;
+      }
+      for (const entry of job.entries) if (entry.status === 'running') entry.status = 'queued';
+      void runAll();
+    }
+  }).catch(() => {});
 });

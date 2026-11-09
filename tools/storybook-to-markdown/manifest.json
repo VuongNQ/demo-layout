@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Storybook to Markdown",
-  "version": "0.1.0",
-  "description": "Export current Storybook Docs page or all discoverable Docs pages to Markdown.",
+  "version": "0.2.0",
+  "description": "Export current Storybook Docs or categorized Docs archives to Markdown and ZIP.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "Storybook to Markdown"
@@ -13,7 +13,9 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "downloads"
+    "downloads",
+    "storage",
+    "offscreen"
   ],
   "optional_host_permissions": [
     "http://*/*",
