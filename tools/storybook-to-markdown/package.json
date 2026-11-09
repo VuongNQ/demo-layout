@@ -1,0 +1,15 @@
+{
+  "name": "storybook-to-markdown-extension",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
+    "verify": "node scripts/verify.mjs",
+    "clean": "node scripts/clean.mjs",
+    "test": "node tests/build-packaging.mjs"
+  }
+}

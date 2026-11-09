@@ -31,6 +31,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
   const downloadRequests = [];
   const filesByZip = [];
   const navigationUrls = [];
+  const navigationCompletionOrder = [];
   const failedIds = new Set();
   const attempts = new Map();
   const state = {};
@@ -107,7 +108,14 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
         tab.status = 'loading';
         activeNavigations++;
         peakNavigations = Math.max(peakNavigations, activeNavigations);
-        setTimeout(() => { activeNavigations--; tab.status = 'complete'; mainContext.location = new URL(tab.url); chrome.tabs.onUpdated.emit(id, { status: 'complete' }, { ...tab }); }, delay);
+        const navigationDelay = typeof delay === 'function' ? delay(update.url) : delay;
+        setTimeout(() => {
+          activeNavigations--;
+          tab.status = 'complete';
+          mainContext.location = new URL(tab.url);
+          navigationCompletionOrder.push(new URL(tab.url).searchParams.get('path')?.replace('/docs/', '') || '');
+          chrome.tabs.onUpdated.emit(id, { status: 'complete' }, { ...tab });
+        }, navigationDelay);
         return { ...tab };
       },
       remove: async (id) => tabs.delete(id),
@@ -214,7 +222,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     }
     throw new Error(`Timed out waiting for export state. Last state: ${state.storybookExportJob?.state}`);
   }
-  return { send, waitFor, state, tabs, filesByZip, downloadRequests, navigationUrls, failedIds, attempts, extractionFrames, get peakNavigations() { return peakNavigations; } };
+  return { send, waitFor, state, tabs, filesByZip, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, get peakNavigations() { return peakNavigations; } };
 }
 
 function defaultEntries() {
@@ -350,6 +358,98 @@ assert.match(completed.entries[0].error, /expected ID: guides-getting-started--d
 assert.match(completed.entries[0].error, /frame 9: id=unrelated-story--docs/);
 assert.deepEqual(incorrectIdHarness.extractionFrames, [], 'unrelated Docs content is never extracted');
 
+const longStoryId = `long-${'a'.repeat(180)}--docs`;
+const filenameEntries = [
+  { id: 'guides-getting-started--docs', type: 'docs', title: 'Guides/Getting Started', name: 'Docs', tags: ['guides'] },
+  { id: 'components-button--docs', type: 'docs', title: 'Components/Button', name: 'Docs', tags: ['components'] },
+  { id: 'components-checkbox--docs', type: 'docs', title: 'Components/Checkbox', name: 'Docs', tags: ['components'] },
+  { id: 'forms-input--docs', type: 'docs', title: 'Forms/Input', name: 'Docs', tags: ['forms'] },
+  { id: 'unmapped-sample--docs', type: 'docs', title: 'Samples/Unknown', name: 'Docs', tags: [] },
+  { id: 'components-shared-alpha--docs', type: 'docs', title: 'Components/Shared', name: 'Docs', tags: ['components'] },
+  { id: 'components-shared-beta--docs', type: 'docs', title: 'Components/Shared', name: 'Docs', tags: ['components'] },
+  { id: 'collision/a--docs', type: 'docs', title: 'Components/Collision', name: 'Docs', tags: ['components'] },
+  { id: 'collision\\a--docs', type: 'docs', title: 'Components/Collision', name: 'Docs', tags: ['components'] },
+  { id: 'Ｆｏｏ--Ｄｏｃｓ', type: 'docs', title: 'Components/Foo', name: 'Docs', tags: ['components'] },
+  { id: '../../evil--docs', type: 'docs', title: 'Components/Evil', name: 'Docs', tags: ['components'] },
+  { id: 'CON', type: 'docs', title: 'Forms/Reserved', name: 'Docs', tags: ['forms'] },
+  { id: 'CON.txt', type: 'docs', title: 'Forms/Reserved with extension', name: 'Docs', tags: ['forms'] },
+  { id: 'PRN', type: 'docs', title: 'Forms/Reserved PRN', name: 'Docs', tags: ['forms'] },
+  { id: 'AUX', type: 'docs', title: 'Forms/Reserved AUX', name: 'Docs', tags: ['forms'] },
+  { id: 'NUL', type: 'docs', title: 'Forms/Reserved NUL', name: 'Docs', tags: ['forms'] },
+  { id: 'COM1', type: 'docs', title: 'Forms/Reserved COM1', name: 'Docs', tags: ['forms'] },
+  { id: 'LPT9', type: 'docs', title: 'Forms/Reserved LPT9', name: 'Docs', tags: ['forms'] },
+  { id: longStoryId, type: 'docs', title: 'Components/Long', name: 'Docs', tags: ['components'] },
+];
+async function exportFilenameFixture(entries, concurrency = 1, delay = 3) {
+  const testHarness = await makeHarness({ entries, delay });
+  await testHarness.send({ action: 'START_ALL', tabId: 1, tabUrl: sourceUrl, options, concurrency });
+  const result = await testHarness.waitFor((job) => job.state === 'completed');
+  assert.equal(result.failed, 0);
+  return { harness: testHarness, files: onePageArchive(testHarness), manifest: manifestFor(onePageArchive(testHarness)) };
+}
+const filenameExport = await exportFilenameFixture(filenameEntries);
+const filenameManifestEntries = filenameExport.manifest.entries;
+const pathForId = (id) => filenameManifestEntries.find((entry) => entry.id === id).path;
+const expectedFilenamePaths = {
+  'guides-getting-started--docs': 'guides/guides-getting-started--docs.md',
+  'components-button--docs': 'components/components-button--docs.md',
+  'components-checkbox--docs': 'components/components-checkbox--docs.md',
+  'forms-input--docs': 'form/forms-input--docs.md',
+  'unmapped-sample--docs': 'components/unmapped-sample--docs.md',
+  'components-shared-alpha--docs': 'components/components-shared-alpha--docs.md',
+  'components-shared-beta--docs': 'components/components-shared-beta--docs.md',
+  'collision/a--docs': 'components/collision-a--docs--ccc2ebc2.md',
+  'collision\\a--docs': 'components/collision-a--docs--ead3ba31.md',
+  'Ｆｏｏ--Ｄｏｃｓ': 'components/foo--docs.md',
+  '../../evil--docs': 'components/evil--docs.md',
+  CON: 'form/_con.md',
+  'CON.txt': 'form/_con.txt.md',
+  PRN: 'form/_prn.md',
+  AUX: 'form/_aux.md',
+  NUL: 'form/_nul.md',
+  COM1: 'form/_com1.md',
+  LPT9: 'form/_lpt9.md',
+};
+for (const [id, expectedPath] of Object.entries(expectedFilenamePaths)) assert.equal(pathForId(id), expectedPath, `exact archive path for ${id}`);
+assert.equal(filenameManifestEntries.find((entry) => entry.id === 'components-button--docs').name, 'Docs');
+assert.equal(filenameManifestEntries.find((entry) => entry.id === 'components-button--docs').title, 'Components/Button');
+assert.equal(filenameManifestEntries.find((entry) => entry.id === 'unmapped-sample--docs').category, 'components');
+assert.equal(filenameManifestEntries.find((entry) => entry.id === longStoryId).path, `components/${`long-${'a'.repeat(113)}--docs`}.md`);
+assert([...pathForId(longStoryId).split('/').at(-1)].length <= 128);
+assert(filenameExport.files.filter((file) => /^(guides|components|form)\/[^/]+\.md$/.test(file.path)).every((file) => !file.path.includes('..')));
+assert.equal(new Set(filenameExport.files.map((file) => file.path)).size, filenameExport.files.length, 'archive member paths never overwrite one another');
+assert.equal(filenameExport.files.filter((file) => file.path === pathForId('collision/a--docs') || file.path === pathForId('collision\\a--docs')).length, 2);
+
+const members = new Set(filenameExport.files.map((file) => file.path));
+for (const entry of filenameManifestEntries.filter((item) => item.status === 'succeeded')) assert(members.has(entry.path), `manifest page path exists: ${entry.path}`);
+const linkPattern = /\]\(([^)]+)\)/g;
+for (const file of filenameExport.files.filter((item) => item.path.endsWith('.md'))) {
+  for (const [, target] of file.content.matchAll(linkPattern)) {
+    if (/^https?:\/\//i.test(target)) continue;
+    const targetPath = decodeURIComponent(new URL(target, `https://archive.invalid/${file.path}`).pathname.slice(1));
+    assert(members.has(targetPath), `${file.path} internal link resolves to archive member ${targetPath}`);
+  }
+}
+const indexText = filenameExport.files.find((file) => file.path === 'INDEX.md').content;
+for (const expectedPath of Object.values(expectedFilenamePaths)) assert(indexText.includes(`](${expectedPath})`), `INDEX.md links to ${expectedPath}`);
+const tokenManifest = filenameExport.manifest.tokenObservations;
+assert(tokenManifest.every((token) => token.sources.every((source) => members.has(source.path))));
+const tokenMarkdown = filenameExport.files.find((file) => file.path === 'tokens/design-tokens.md').content;
+assert.match(tokenMarkdown, /\]\(..\/components\/components-button--docs\.md\)/, 'token provenance uses a relative link to the generated page path');
+const reportMarkdown = filenameExport.files.find((file) => file.path === 'EXTRACTION_REPORT.md').content;
+assert.match(reportMarkdown, /\]\(guides\/guides-getting-started--docs\.md\)/, 'extraction report links to successful page paths');
+
+const reorderedEntries = [...filenameEntries].reverse();
+const delayedExport = await exportFilenameFixture(reorderedEntries, 3, (url) => {
+  const id = new URL(url).searchParams.get('path')?.replace('/docs/', '');
+  return id === longStoryId ? 35 : 1;
+});
+const expectedCompletionOrder = reorderedEntries.map((entry) => entry.id);
+assert.notDeepEqual(delayedExport.harness.navigationCompletionOrder, expectedCompletionOrder, 'fixture completed pages in a different order than index order');
+const sortedPathMap = (manifest) => manifest.entries.map(({ id, path }) => [id, path]).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+assert.deepEqual(sortedPathMap(delayedExport.manifest), sortedPathMap(filenameExport.manifest), 'filenames do not depend on index order, concurrency, or completion order');
+assert.deepEqual(Array.from(delayedExport.files, (file) => file.path), Array.from(filenameExport.files, (file) => file.path), 'repeated exports emit identical archive member paths');
+
 // Resume from the saved state after popup-equivalent reconnection.
 assert.equal((await harness.send({ action: 'GET_JOB' })).job.state, 'completed');
 
@@ -469,7 +569,16 @@ try {
   execFileSync('unzip', ['-t', zipPath], { stdio: 'pipe' });
   const independentlyReadNames = execFileSync('unzip', ['-Z1', zipPath], { encoding: 'utf8' }).trim().split('\n').sort();
   assert.deepEqual(independentlyReadNames, names.sort(), 'independent unzip reader sees every expected ZIP member');
+
+  let filenameZipResponse;
+  offscreenListeners[0]({ action: 'MAKE_ZIP', files: filenameExport.files }, {}, (response) => { filenameZipResponse = response; });
+  assert.equal(filenameZipResponse.ok, true);
+  const filenameZipPath = join(zipTestDir, 'filename-export.zip');
+  await writeFile(filenameZipPath, Buffer.from(await archiveBlob.arrayBuffer()));
+  execFileSync('unzip', ['-t', filenameZipPath], { stdio: 'pipe' });
+  const filenameZipMembers = execFileSync('unzip', ['-Z1', filenameZipPath], { encoding: 'utf8' }).trim().split('\n').sort();
+  assert.deepEqual(filenameZipMembers, Array.from(filenameExport.files, (file) => file.path).sort(), 'independent unzip reader confirms exact generated filename members');
 } finally {
   await rm(zipTestDir, { recursive: true, force: true });
 }
-console.log(JSON.stringify({ result: 'PASS', currentMarkdown: true, allDocsZip: archiveFiles.length, defaultConcurrency: 1, fallbackCategory: 'components', tokenContextAndConflicts: true, checkpointDeletion: true, partialRetry: true, pauseResume: true, cancellationCleanup: true, zipSignatures: true, independentUnzip: true, mockPoolPeakNavigations: { sequential: serialHarness.peakNavigations, concurrency2: boundedHarness.peakNavigations, concurrency3: threeHarness.peakNavigations } }));
+console.log(JSON.stringify({ result: 'PASS', currentMarkdown: true, allDocsZip: archiveFiles.length, exactStoryIdPaths: true, collisionHashesOnly: true, pathLinksConsistent: true, deterministicCompletionOrder: true, defaultConcurrency: 1, fallbackCategory: 'components', tokenContextAndConflicts: true, checkpointDeletion: true, partialRetry: true, pauseResume: true, cancellationCleanup: true, zipSignatures: true, independentUnzip: true, mockPoolPeakNavigations: { sequential: serialHarness.peakNavigations, concurrency2: boundedHarness.peakNavigations, concurrency3: threeHarness.peakNavigations } }));

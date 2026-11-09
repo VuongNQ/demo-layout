@@ -100,22 +100,79 @@ function hashId(value) {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+const MAX_ARCHIVE_FILENAME_CODEPOINTS = 128;
+const ARCHIVE_CATEGORIES = new Set(['guides', 'components', 'form']);
+
+function storyIdFilenameBase(id, suffix = '') {
+  let normalized = String(id || '').normalize('NFKC').toLowerCase()
+    .replace(/[\\/]/g, '-')
+    .replace(/[:*?"<>|\u0000-\u001f\u007f]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/[^\p{L}\p{N}._-]/gu, '-')
+    .replace(/\.{2,}/g, '-')
+    .replace(/^\.+|\.+$/g, '');
+  const suffixLength = [...suffix].length;
+  const baseLimit = Math.max(1, MAX_ARCHIVE_FILENAME_CODEPOINTS - 4 - suffixLength);
+  const meaningfulSuffix = normalized.endsWith('--docs') ? '--docs' : '';
+  const stem = meaningfulSuffix ? normalized.slice(0, -meaningfulSuffix.length) : normalized;
+  const stemLimit = Math.max(0, baseLimit - [...meaningfulSuffix].length);
+  let boundedStem = [...stem].slice(0, stemLimit).join('').replace(/^[-.]+|[-. ]+$/g, '');
+  if (!boundedStem && !meaningfulSuffix) boundedStem = 'page';
+  let base = `${boundedStem}${meaningfulSuffix}`;
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(base)) base = `_${base}`;
+  return `${base}${suffix}`;
+}
+
+function compareEntriesByIdentity(a, b) {
+  const left = [a.id, a.title, a.name, a.importPath].map((value) => String(value || '')).join('\u0000');
+  const right = [b.id, b.title, b.name, b.importPath].map((value) => String(value || '')).join('\u0000');
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function bucketsBy(records, keyFor) {
+  const buckets = new Map();
+  for (const record of records) {
+    const key = keyFor(record);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(record);
+  }
+  return buckets;
+}
+
 function assignPaths(entries) {
-  const used = new Set();
-  for (const entry of entries) {
-    const parts = String(entry.title || '').split(/[\\/]/).map((part) => part.trim()).filter(Boolean);
+  const records = entries.map((entry) => {
     const classification = categoryFor(entry);
-    const category = classification.category;
-    let groups = [];
-    if (parts.length > 1 && /^(guides?|documentation|docs|forms?|components?)$/i.test(parts[0])) groups = parts.slice(1, -1);
-    else if (parts.length > 1 && category !== 'unclassified') groups = parts.slice(0, -1);
-    const base = slugSegment(entry.name || parts.at(-1) || entry.id);
-    const directory = [category, ...groups.map(slugSegment)].join('/');
-    const pathBase = `${directory}/${base}--${hashId(entry.id)}`;
-    let path = `${pathBase}.md`;
-    let collision = 1;
-    while (used.has(path)) path = `${pathBase}-${collision++}.md`;
-    used.add(path);
+    return { entry, classification, category: classification.category, plainBase: storyIdFilenameBase(entry.id), collisionSuffix: '', collisionRound: 0, collisionOrdinal: 0 };
+  });
+
+  for (const bucket of bucketsBy(records, (record) => `${record.category}/${record.plainBase}`).values()) {
+    if (bucket.length < 2) continue;
+    for (const record of bucket) record.collisionSuffix = `--${hashId(record.entry.id)}`;
+  }
+
+  const pathFor = (record) => `${record.category}/${storyIdFilenameBase(record.entry.id, record.collisionSuffix)}.md`;
+  // Resolve even the unlikely case where a generated hash suffix collides with
+  // another sanitized ID. Sort by original metadata so completion order cannot
+  // determine the filename.
+  for (let pass = 0; pass < 16; pass++) {
+    const collisions = [...bucketsBy(records, pathFor).values()].filter((bucket) => bucket.length > 1);
+    if (!collisions.length) break;
+    for (const bucket of collisions) {
+      bucket.sort((a, b) => compareEntriesByIdentity(a.entry, b.entry));
+      bucket.forEach((record, index) => {
+        record.collisionRound += 1;
+        record.collisionOrdinal = index + 1;
+        record.collisionSuffix = `--${hashId(record.entry.id)}-${record.collisionOrdinal}${record.collisionRound > 1 ? `-${record.collisionRound}` : ''}`;
+      });
+    }
+    if (pass === 15 && [...bucketsBy(records, pathFor).values()].some((bucket) => bucket.length > 1)) {
+      throw new Error('Could not create unique Markdown paths for colliding Storybook IDs.');
+    }
+  }
+
+  for (const record of records) {
+    const { entry, classification, category } = record;
+    const path = pathFor(record);
     entry.category = category;
     entry.categorySource = classification.source;
     entry.categoryConfidence = classification.confidence;
@@ -382,6 +439,10 @@ async function crawlPool() {
 }
 
 function zipFilesFor(jobSnapshot) {
+  // Recompute from the stable Storybook IDs so a recovered pre-upgrade job
+  // cannot emit its former display-name/hash paths.
+  assignPaths(jobSnapshot.entries);
+  for (const entry of jobSnapshot.entries) if (entry.page) entry.page.path = entry.path;
   const successful = jobSnapshot.entries.filter((entry) => entry.status === 'succeeded' && entry.page);
   const tokens = new Map();
   const tokenContext = (token, page) => token.context || page.tokenContext || { theme: 'unknown', colorScheme: 'unknown' };
@@ -441,7 +502,8 @@ function zipFilesFor(jobSnapshot) {
   const reportLines = ['# Extraction report', '', `Job: \`${jobSnapshot.id}\``, `Source: ${jobSnapshot.sourceUrl}`, `Discovered: ${jobSnapshot.discoveredCount}`, `Selected: ${jobSnapshot.entries.length}`, `Succeeded: ${successful.length}`, `Failed: ${failures.length}`, `Omitted by cap: ${Math.max(0, jobSnapshot.discoveredCount - jobSnapshot.entries.length)}`, '', '## Page outcomes', ''];
   for (const entry of jobSnapshot.entries) {
     const outcomes = (entry.history || []).map((attempt) => `#${attempt.attempt} ${attempt.status}${attempt.error ? ` (${attempt.error})` : ''}`).join(', ');
-    reportLines.push(`- \`${entry.id}\` (${entry.title}): ${entry.status}; category ${entry.category} (${entry.categoryConfidence || 'unknown'} confidence: ${entry.categoryEvidence || 'no evidence recorded'})${outcomes ? `; attempts: ${outcomes}` : `; attempts ${entry.attempts || 0}`}${entry.error ? `; latest error: ${entry.error}` : ''}`);
+    const pageReference = entry.status === 'succeeded' && entry.path ? `; page: [${entry.path}](${entry.path})` : entry.path ? `; intended path: \`${entry.path}\`` : '';
+    reportLines.push(`- \`${entry.id}\` (${entry.title}): ${entry.status}; category ${entry.category} (${entry.categoryConfidence || 'unknown'} confidence: ${entry.categoryEvidence || 'no evidence recorded'})${pageReference}${outcomes ? `; attempts: ${outcomes}` : `; attempts ${entry.attempts || 0}`}${entry.error ? `; latest error: ${entry.error}` : ''}`);
   }
   reportLines.push('', '> Token and computed-style values are observations from rendered pages, not confirmed canonical design tokens.', '');
   const files = [
@@ -457,6 +519,17 @@ function zipFilesFor(jobSnapshot) {
     { path: 'tokens/design-tokens.md', content: renderTokens([...tokens.values()]) },
   ];
   for (const entry of successful) files.push({ path: entry.path, content: renderStoryPage(entry.page, jobSnapshot.options) });
+  for (const entry of successful) {
+    const segments = String(entry.path || '').split('/');
+    if (segments.length !== 2 || !ARCHIVE_CATEGORIES.has(segments[0]) || segments[1] === '.' || segments[1] === '..' || !segments[1].endsWith('.md') || [...segments[1]].length > MAX_ARCHIVE_FILENAME_CODEPOINTS) {
+      throw new Error(`Unsafe generated Markdown path for Storybook ID ${entry.id}: ${entry.path || '(empty)'}`);
+    }
+  }
+  const archivePaths = new Set();
+  for (const file of files) {
+    if (archivePaths.has(file.path)) throw new Error(`Duplicate archive member path: ${file.path}`);
+    archivePaths.add(file.path);
+  }
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
@@ -467,7 +540,7 @@ function renderTokens(tokens) {
     lines.push(`## ${token.identity || token.name || token.label || 'Unlabelled computed style'}`, '', `- Kind: ${token.kind}`, `- Value: ${String(value || '').replace(/\n/g, ' ')}`, `- Context: theme=${token.context?.theme || 'unknown'}; color-scheme=${token.context?.colorScheme || 'unknown'}`);
     if (token.conflict) lines.push('- Conflict: this identity and context were observed with multiple values.');
     lines.push('- Sources:');
-    for (const source of token.sources) lines.push(`  - [${source.id}](${source.path}) · frame ${source.frameId} · ${source.url}`);
+    for (const source of token.sources) lines.push(`  - [${source.id}](../${source.path}) · frame ${source.frameId} · ${source.url}`);
     lines.push('');
   }
   return lines.join('\n');
