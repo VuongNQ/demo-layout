@@ -19,8 +19,8 @@ export function validateManifest(manifest, label = 'manifest.json') {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error(`${label} must contain a JSON object.`);
   if (manifest.manifest_version !== 3) throw new Error(`${label} must declare manifest_version: 3.`);
   if (typeof manifest.name !== 'string' || !manifest.name.trim()) throw new Error(`${label} must have a nonempty name.`);
-  if (typeof manifest.version !== 'string' || !/^\d+(?:\.\d+){0,3}$/.test(manifest.version)) throw new Error(`${label} must have a Chrome extension version with one to four numeric components.`);
-  if (!manifest.action || typeof manifest.action.default_popup !== 'string' || !manifest.action.default_popup.trim()) throw new Error(`${label} must define action.default_popup.`);
+  if (typeof manifest.version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(manifest.version)) throw new Error(`${label} must have a numeric MAJOR.MINOR.PATCH Chrome extension version.`);
+  if (!manifest.action || !(typeof manifest.action.default_popup === 'string' && manifest.action.default_popup.trim()) && !(typeof manifest.action.default_title === 'string' && manifest.action.default_title.trim())) throw new Error(`${label} must define an action default_popup or default_title.`);
   if (!manifest.background || typeof manifest.background.service_worker !== 'string' || !manifest.background.service_worker.trim()) throw new Error(`${label} must define background.service_worker.`);
   return manifest;
 }

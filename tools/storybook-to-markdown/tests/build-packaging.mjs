@@ -9,7 +9,7 @@ import { buildExtension, cleanGeneratedArtifacts, collectRuntimeGraph, packageEx
 const extensionRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'storybook-extension-build-test-'));
 const fixtureRoot = path.join(temporaryRoot, 'fixture');
-const sourceFiles = ['manifest.json', 'background.js', 'extractor.js', 'popup.html', 'popup.css', 'popup.js', 'offscreen.html', 'offscreen.js'];
+const sourceFiles = ['manifest.json', 'background.js', 'extractor.js', 'popup.html', 'popup.css', 'popup.js', 'figma-css.js', 'offscreen.html', 'offscreen.js'];
 
 async function makeFixture(root = fixtureRoot) {
   await mkdir(root, { recursive: true });
@@ -33,11 +33,13 @@ async function makeFixture(root = fixtureRoot) {
 
 try {
   await makeFixture();
+  const fixtureManifest = JSON.parse(await readFile(path.join(fixtureRoot, 'manifest.json'), 'utf8'));
+  const expectedVersion = fixtureManifest.version;
   const expectedRuntimeFiles = [...sourceFiles, 'assets/icon.svg'].sort();
 
   const firstBuild = await buildExtension(fixtureRoot);
   assert.deepEqual(firstBuild.files, expectedRuntimeFiles, 'build contains manifest and the complete referenced runtime graph only');
-  for (const file of ['background.js', 'extractor.js', 'popup.html', 'popup.css', 'popup.js', 'offscreen.html', 'offscreen.js']) {
+  for (const file of ['background.js', 'extractor.js', 'popup.html', 'popup.css', 'popup.js', 'figma-css.js', 'offscreen.html', 'offscreen.js']) {
     assert(firstBuild.files.includes(file), `referenced runtime resource is in dist: ${file}`);
   }
   assert(firstBuild.files.includes('assets/icon.svg'), 'manifest-referenced static icon asset is copied');
@@ -54,17 +56,19 @@ try {
   assert(!graph.files.includes('README.md'));
 
   const packaged = await packageExtension(fixtureRoot);
-  assert.equal(packaged.filename, 'storybook-to-markdown-v0.3.0.zip');
+  assert.equal(packaged.filename, `storybook-to-markdown-v${expectedVersion}.zip`);
   const archiveBytes = await readFile(packaged.output);
   const zipEntries = readZip(archiveBytes);
   const names = zipEntries.map((entry) => entry.path).sort();
   assert.deepEqual(names, expectedRuntimeFiles, 'ZIP contains exactly dist contents and no dist/ prefix');
   assert(names.includes('manifest.json'), 'manifest.json is at the ZIP root');
+  const zipManifest = JSON.parse(zipEntries.find((entry) => entry.path === 'manifest.json').bytes.toString('utf8'));
+  assert.equal(zipManifest.version, expectedVersion, 'ZIP manifest uses the fixture manifest version');
   assert(!names.some((name) => /(^|\/)(tests|scripts|docs|reports|local-data|dist)(\/|$)/.test(name)));
   assert(!names.some((name) => /(?:storybook-export|checkpoint|private-report)/i.test(name)));
   for (const entry of zipEntries) assert(entry.bytes.equals(await readFile(path.join(fixtureRoot, 'dist', entry.path))));
   const verified = await verifyArtifacts(fixtureRoot);
-  assert.equal(verified.version, '0.3.0');
+  assert.equal(verified.version, expectedVersion);
   assert.equal(verified.entryCount, expectedRuntimeFiles.length);
 
   const packagedAgain = await packageExtension(fixtureRoot);

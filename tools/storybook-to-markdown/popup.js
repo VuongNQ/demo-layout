@@ -1,11 +1,16 @@
+import { buildFigmaCssArchive, parseFigmaCss } from './figma-css.js';
+
 const byId = (id) => document.getElementById(id);
 const startButton = byId('start');
-const messageNode = byId('message');
+const storybookMessage = byId('storybook-message');
 const jobPanel = byId('job-panel');
 const newExport = byId('new-export');
+const figmaPanel = byId('figma-css-panel');
 let currentJob = null;
 let elapsedTimer = null;
 let lastAnnouncement = '';
+let activeImportMode = 'storybook';
+let parsedFigmaCss = null;
 
 function send(message) {
   return new Promise((resolve, reject) => {
@@ -74,12 +79,132 @@ function appendPageOutcome(container, entry) {
     retry.addEventListener('click', async () => {
       retry.disabled = true;
       try { await send({ action: 'RETRY_ENTRY', id: entry.id }); }
-      catch (error) { messageNode.textContent = error.message; retry.disabled = false; }
+      catch (error) { storybookMessage.textContent = error.message; retry.disabled = false; }
     });
     row.append(retry);
   }
   container.append(row);
 }
+
+function setImportMode(mode) {
+  activeImportMode = mode === 'figma' ? 'figma' : 'storybook';
+  const storybookTab = byId('mode-storybook');
+  const figmaTab = byId('mode-figma');
+  storybookTab.setAttribute('aria-selected', String(activeImportMode === 'storybook'));
+  figmaTab.setAttribute('aria-selected', String(activeImportMode === 'figma'));
+  storybookTab.tabIndex = activeImportMode === 'storybook' ? 0 : -1;
+  figmaTab.tabIndex = activeImportMode === 'figma' ? 0 : -1;
+  byId('storybook-panel').hidden = activeImportMode !== 'storybook';
+  figmaPanel.hidden = activeImportMode !== 'figma';
+  newExport.hidden = activeImportMode === 'figma' || Boolean(currentJob?.state && !['idle', 'completed', 'cancelled', 'failed'].includes(currentJob.state));
+}
+
+function invalidateFigmaPreview() {
+  parsedFigmaCss = null;
+  byId('figma-export').disabled = true;
+  byId('figma-preview').hidden = true;
+  byId('figma-layer-count').textContent = '0';
+  byId('figma-warning-count').textContent = '0';
+  if (byId('figma-css-input').value) byId('figma-message').textContent = 'Input changed. Parse again to preview and export.';
+}
+
+function showFigmaPreview(parsed) {
+  const list = byId('figma-layer-list');
+  list.replaceChildren();
+  for (const layer of parsed.layers) {
+    const item = document.createElement('article');
+    item.className = 'figma-layer-preview';
+    const heading = document.createElement('h4');
+    heading.textContent = `${layer.order}. ${layer.name || '(unnamed layer)'}`;
+    const detail = document.createElement('p');
+    detail.textContent = `${layer.declarations.length} declaration${layer.declarations.length === 1 ? '' : 's'} · ${layer.warnings.length} warning${layer.warnings.length === 1 ? '' : 's'}`;
+    item.append(heading, detail);
+    if (layer.annotations.length) {
+      const annotations = document.createElement('p');
+      annotations.className = 'muted';
+      annotations.textContent = `Annotations: ${layer.annotations.map((annotation) => annotation.text).join('; ')}`;
+      item.append(annotations);
+    }
+    list.append(item);
+  }
+  byId('figma-layer-count').textContent = String(parsed.layers.length);
+  byId('figma-warning-count').textContent = String(parsed.warnings.length);
+  byId('figma-preview').hidden = false;
+  byId('figma-export').disabled = parsed.layers.length === 0;
+}
+
+for (const [id, mode] of [['mode-storybook', 'storybook'], ['mode-figma', 'figma']]) {
+  byId(id).addEventListener('click', () => setImportMode(mode));
+  byId(id).addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 'storybook' : event.key === 'End' ? 'figma' : mode === 'storybook' ? 'figma' : 'storybook';
+    setImportMode(next);
+    byId(next === 'storybook' ? 'mode-storybook' : 'mode-figma').focus();
+  });
+}
+byId('close-window').addEventListener('click', async () => {
+  const button = byId('close-window');
+  button.disabled = true;
+  try {
+    const currentWindow = await chrome.windows.getCurrent();
+    const windowId = currentWindow?.id;
+    if (!Number.isInteger(windowId) || windowId < 0) {
+      throw new Error('Chrome did not provide a valid extension window ID. Close this window using its native controls.');
+    }
+    await chrome.windows.remove(windowId);
+  } catch (error) {
+    byId(activeImportMode === 'figma' ? 'figma-message' : 'storybook-message').textContent = `Could not close this window: ${error.message}`;
+    button.disabled = false;
+  }
+});
+for (const id of ['figma-css-input', 'figma-selection-url', 'figma-export-name']) byId(id).addEventListener('input', invalidateFigmaPreview);
+byId('figma-parse').addEventListener('click', () => {
+  const button = byId('figma-parse');
+  button.disabled = true;
+  byId('figma-message').textContent = '';
+  try {
+    parsedFigmaCss = parseFigmaCss(byId('figma-css-input').value, byId('figma-selection-url').value);
+    showFigmaPreview(parsedFigmaCss);
+    byId('figma-message').textContent = parsedFigmaCss.warnings.length ? 'Parsed locally. Review the warnings before export.' : 'Parsed locally. Review the layer preview before export.';
+  } catch (error) {
+    parsedFigmaCss = null;
+    byId('figma-layer-count').textContent = '0';
+    byId('figma-warning-count').textContent = '0';
+    byId('figma-preview').hidden = true;
+    byId('figma-export').disabled = true;
+    byId('figma-message').textContent = `Error: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});
+byId('figma-export').addEventListener('click', async () => {
+  const button = byId('figma-export');
+  if (!parsedFigmaCss) return;
+  button.disabled = true;
+  byId('figma-message').textContent = 'Building the local Figma CSS ZIP…';
+  try {
+    const archive = buildFigmaCssArchive(parsedFigmaCss, byId('figma-css-input').value, byId('figma-export-name').value);
+    const response = await send({ action: 'EXPORT_FIGMA_CSS', files: archive.files, filename: archive.filename });
+    byId('figma-message').textContent = `Downloaded ${response.filename}. Pasted CSS was processed locally.`;
+  } catch (error) {
+    byId('figma-message').textContent = `Error: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});
+byId('figma-clear').addEventListener('click', () => {
+  byId('figma-css-input').value = '';
+  byId('figma-selection-url').value = '';
+  byId('figma-export-name').value = '';
+  byId('figma-message').textContent = '';
+  parsedFigmaCss = null;
+  byId('figma-layer-list').replaceChildren();
+  byId('figma-layer-count').textContent = '0';
+  byId('figma-warning-count').textContent = '0';
+  byId('figma-preview').hidden = true;
+  byId('figma-export').disabled = true;
+});
 
 function render(job) {
   currentJob = job;
@@ -88,7 +213,7 @@ function render(job) {
   const hasJob = job.state && job.state !== 'idle';
   jobPanel.hidden = !hasJob;
   byId('idle-status').hidden = hasJob;
-  newExport.hidden = hasJob && !terminal;
+  newExport.hidden = activeImportMode === 'figma' || (hasJob && !terminal);
   byId('new-after-terminal').hidden = !terminal;
 
   if (!hasJob) return;
@@ -128,34 +253,33 @@ async function pollJob() {
     const response = await send({ action: 'GET_JOB' });
     render(response.job || { state: 'idle' });
   } catch (error) {
-    messageNode.textContent = error.message;
+    storybookMessage.textContent = error.message;
   }
 }
 
 startButton.addEventListener('click', async () => {
   startButton.disabled = true;
-  messageNode.textContent = '';
+  storybookMessage.textContent = '';
   byId('current-preview').hidden = true;
   byId('preview').textContent = '';
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id || !/^https?:\/\//.test(tab.url || '')) throw new Error('Open a Storybook page over HTTP(S) first.');
     const scope = document.querySelector('input[name="scope"]:checked').value;
     const options = { props: byId('props').checked, tokens: byId('tokens').checked, examples: byId('examples').checked };
     if (scope === 'all') {
-      const granted = await chrome.permissions.request({ origins: [`${new URL(tab.url).origin}/*`] });
+      const source = await send({ action: 'GET_SOURCE_TAB' });
+      const granted = await chrome.permissions.request({ origins: [`${new URL(source.tabUrl).origin}/*`] });
       if (!granted) throw new Error('Host permission for this Storybook origin is required.');
-      const response = await send({ action: 'START_ALL', tabId: tab.id, tabUrl: tab.url, options });
+      const response = await send({ action: 'START_ALL', options });
       render(response.job);
     } else {
-      messageNode.textContent = 'Extracting the current Docs page…';
-      const response = await send({ action: 'EXPORT_CURRENT', tabId: tab.id, tabUrl: tab.url, options });
-      messageNode.textContent = `Downloaded ${response.filename}; 1 page.`;
+      storybookMessage.textContent = 'Extracting the current Docs page…';
+      const response = await send({ action: 'EXPORT_CURRENT', options });
+      storybookMessage.textContent = `Downloaded ${response.filename}; 1 page.`;
       byId('preview').textContent = response.preview;
       byId('current-preview').hidden = false;
     }
   } catch (error) {
-    messageNode.textContent = `Error: ${error.message}`;
+    storybookMessage.textContent = `Error: ${error.message}`;
   } finally {
     startButton.disabled = false;
   }
@@ -163,25 +287,28 @@ startButton.addEventListener('click', async () => {
 
 byId('pause').addEventListener('click', async () => {
   try { const response = await send({ action: 'PAUSE' }); render(response.job); }
-  catch (error) { messageNode.textContent = error.message; }
+  catch (error) { storybookMessage.textContent = error.message; }
 });
 byId('resume').addEventListener('click', async () => {
   try { const response = await send({ action: 'RESUME' }); render(response.job); }
-  catch (error) { messageNode.textContent = error.message; }
+  catch (error) { storybookMessage.textContent = error.message; }
 });
 byId('cancel').addEventListener('click', async () => {
   try { const response = await send({ action: 'CANCEL' }); render(response.job); }
-  catch (error) { messageNode.textContent = error.message; }
+  catch (error) { storybookMessage.textContent = error.message; }
 });
 byId('retry-all').addEventListener('click', async () => {
   try { const response = await send({ action: 'RESUME' }); render(response.job); }
-  catch (error) { messageNode.textContent = error.message; }
+  catch (error) { storybookMessage.textContent = error.message; }
 });
 byId('new-after-terminal').addEventListener('click', () => {
+  setImportMode('storybook');
   newExport.hidden = false;
   jobPanel.hidden = true;
   byId('idle-status').hidden = false;
-  messageNode.textContent = '';
+  byId('current-preview').hidden = true;
+  byId('preview').textContent = '';
+  storybookMessage.textContent = '';
 });
 
 chrome.runtime.onMessage.addListener((message) => {

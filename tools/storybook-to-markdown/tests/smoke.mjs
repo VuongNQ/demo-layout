@@ -5,12 +5,16 @@ import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import { buildFigmaCssArchive, parseFigmaCss } from '../figma-css.js';
+import { parseVersion } from '../scripts/versioning.mjs';
 
 const directory = new URL('../', import.meta.url);
 const read = (name) => readFile(new URL(name, directory), 'utf8');
 const manifest = JSON.parse(await read('manifest.json'));
+const packageJson = JSON.parse(await read('package.json'));
 assert.equal(manifest.manifest_version, 3);
-assert.equal(manifest.version, '0.3.0');
+assert.doesNotThrow(() => parseVersion(manifest.version, 'manifest.json version'));
+assert.equal(packageJson.version, manifest.version, 'package.json version matches the authoritative manifest version');
 assert(manifest.permissions.includes('storage'));
 assert(manifest.permissions.includes('offscreen'));
 assert(!manifest.permissions.includes('unlimitedStorage'));
@@ -18,15 +22,38 @@ const popupHtml = await read('popup.html');
 assert.match(popupHtml, /<progress[^>]+aria-label="Export progress"/);
 assert.match(popupHtml, /aria-live="polite"/);
 assert.match(popupHtml, /Idle · ready to export/);
+assert.match(popupHtml, /role="tablist"/);
+assert.match(popupHtml, /role="tab"[^>]+aria-selected="true"/);
+assert.match(popupHtml, /role="tabpanel"[^>]+hidden/);
+assert.match(popupHtml, /id="close-window"[^>]+aria-label="Close extension window"/);
+assert.equal((popupHtml.match(/\bid="storybook-message"/g) || []).length, 1);
+assert.equal((popupHtml.match(/\bid="figma-message"/g) || []).length, 1);
+assert(!popupHtml.includes('id="message"'), 'mode-specific messages do not share a result node');
 assert(!popupHtml.includes('id="concurrency"'), 'popup does not expose concurrency above the approved serial default');
 const popupJs = await read('popup.js');
 for (const state of ['discovering', 'crawling', 'processing', 'compressing', 'completed', 'paused', 'cancelled', 'failed']) assert(popupJs.includes(`${state}:`));
+assert(!popupJs.includes('tabs.query({ active: true, currentWindow: true })'), 'Current Docs does not query the extension window as source');
+assert.match(popupJs, /event\.key === 'Home'.*event\.key === 'End'.*mode === 'storybook'/);
+assert(!popupJs.includes('beforeunload'));
+assert(!popupJs.includes('onblur') && !popupJs.includes('onfocusout'), 'window focus changes are not suppressed or used to close the tool');
+assert.match(popupJs, /chrome\.windows\.getCurrent\(\)/, 'Close resolves the extension window from its page context');
+assert.match(popupJs, /const windowId = currentWindow\?\.id;[\s\S]{0,100}Number\.isInteger\(windowId\) \|\| windowId < 0/, 'Close rejects missing and negative window IDs');
+assert.match(popupJs, /chrome\.windows\.remove\(windowId\)/, 'Close removes the concrete current extension window');
+assert(!popupJs.includes('WINDOW_ID_CURRENT'), 'Close does not pass the -2 sentinel to windows.remove');
+assert(!/close-window[\s\S]{0,500}chrome\.tabs\.remove/.test(popupJs), 'Close does not remove browser tabs');
+assert.match((await read('background.js')), /chrome\.windows\.create\([\s\S]{0,150}type: 'popup'/);
 
 async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFrames = null } = {}) {
   const messages = new Set();
   const tabListeners = new Set();
   const downloadListeners = new Set();
   const tabs = new Map();
+  const extensionWindows = new Map();
+  const windowFocusCalls = [];
+  const actionClicks = new Set();
+  const removedWindowListeners = new Set();
+  let windowSequence = 77;
+  let sourceTab = { id: 1, url: 'https://storybook.test/storybook/?path=/docs/guide--docs', status: 'complete' };
   const downloadItems = new Map();
   const downloadRequests = [];
   const filesByZip = [];
@@ -81,6 +108,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     runtime: {
       onMessage: event(messages),
       onStartup: event(new Set()),
+      getManifest: () => structuredClone(manifest),
       sendMessage: async (message) => {
         if (message.action === 'MAKE_ZIP') {
           filesByZip.push(message.files);
@@ -92,6 +120,10 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
       getURL: (path) => `chrome-extension://mock/${path}`,
     },
     storage: {
+      session: {
+        get: async (key) => ({ [key]: state[key] || { sourceTabId: 1, sourceUrl: sourceTab.url, windowId: null } }),
+        set: async (value) => Object.assign(state, structuredClone(value)),
+      },
       local: {
         get: async (key) => ({ [key]: state[key] }),
         set: async (value) => Object.assign(state, structuredClone(value)),
@@ -100,7 +132,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     tabs: {
       onUpdated: event(tabListeners),
       create: async () => { const id = tabSequence++; tabs.set(id, { id, url: 'about:blank', status: 'complete' }); return tabs.get(id); },
-      get: async (id) => tabs.get(id),
+      get: async (id) => id === 1 ? sourceTab : tabs.get(id),
       update: async (id, update) => {
         const tab = tabs.get(id);
         tab.url = update.url;
@@ -119,6 +151,14 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
         return { ...tab };
       },
       remove: async (id) => tabs.delete(id),
+    },
+    action: { onClicked: event(actionClicks) },
+    windows: {
+      onRemoved: event(removedWindowListeners),
+      get: async (id) => { if (!extensionWindows.has(id)) throw new Error('No such window'); return extensionWindows.get(id); },
+      update: async (id, options) => { windowFocusCalls.push({ id, ...options }); return Object.assign(extensionWindows.get(id), options); },
+      create: async (options) => { const win = { id: windowSequence++, ...options }; extensionWindows.set(win.id, win); return win; },
+      remove: async (id) => { extensionWindows.delete(id); chrome.windows.onRemoved.emit(id); },
     },
     scripting: {
       executeScript: async ({ target, func, args = [] }) => {
@@ -222,7 +262,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     }
     throw new Error(`Timed out waiting for export state. Last state: ${state.storybookExportJob?.state}`);
   }
-  return { send, waitFor, state, tabs, filesByZip, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, get peakNavigations() { return peakNavigations; } };
+  return { send, waitFor, state, tabs, extensionWindows, windowFocusCalls, actionClicks, clickAction: (tab) => [...actionClicks][0](tab), closeWindow: (id) => chrome.windows.remove(id), setSourceTab: (tab) => { sourceTab = tab; }, getSourceTab: () => sourceTab, filesByZip, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, get peakNavigations() { return peakNavigations; } };
 }
 
 function defaultEntries() {
@@ -239,9 +279,47 @@ const harness = await makeHarness({ delay: 3 });
 const sourceUrl = 'https://storybook.test/storybook/?path=/docs/guide--docs';
 const options = { props: true, tokens: true, examples: true };
 
-const current = await harness.send({ action: 'EXPORT_CURRENT', tabId: 1, tabUrl: sourceUrl, options });
+await harness.clickAction({ id: 1, url: sourceUrl });
+assert.equal(harness.extensionWindows.size, 1, 'toolbar action opens one extension window');
+await harness.clickAction({ id: 1, url: sourceUrl });
+assert.equal(harness.extensionWindows.size, 1, 'second toolbar click reuses the existing extension window');
+assert.equal(harness.windowFocusCalls.at(-1).focused, true, 'second toolbar click focuses the existing window');
+await harness.clickAction({ id: 88, url: 'chrome-extension://mock/popup.html' });
+assert.equal((await harness.send({ action: 'GET_SOURCE_TAB' })).tabId, 1, 'toolbar clicks from the extension window preserve the Storybook source context');
+await harness.closeWindow(77);
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(harness.extensionWindows.size, 0, 'native window close removes only the extension window');
+assert.equal(harness.state.storybookToolWindowContext.windowId, null, 'native close invalidates the saved extension-window ID');
+assert.equal(harness.getSourceTab().id, 1, 'closing the extension window leaves the originating Storybook tab open');
+await harness.clickAction({ id: 1, url: sourceUrl });
+assert.equal(harness.extensionWindows.size, 1, 'toolbar action recovers after native window closure');
+assert(harness.extensionWindows.has(78), 'reopening creates a fresh concrete tool window');
+assert.equal((await harness.send({ action: 'GET_SOURCE_TAB' })).tabId, 1, 'source tab is the toolbar click origin');
+await harness.setSourceTab({ id: 1, url: 'https://storybook.test/storybook/?path=/docs/other--docs', status: 'complete' });
+assert.match((await harness.send({ action: 'GET_SOURCE_TAB' })).error, /navigated/i, 'navigated source tab is rejected');
+await harness.setSourceTab({ id: 1, url: sourceUrl, status: 'complete' });
+await harness.clickAction({ id: 1, url: sourceUrl });
+await harness.setSourceTab({ id: 1, url: 'https://example.test/', status: 'complete' });
+await harness.clickAction({ id: 1, url: 'https://example.test/' });
+assert.match((await harness.send({ action: 'EXPORT_CURRENT', options })).error, /not on a Storybook Docs page/i, 'non-Storybook toolbar source is rejected for Current Docs');
+await harness.setSourceTab(null);
+assert.match((await harness.send({ action: 'GET_SOURCE_TAB' })).error, /source tab/i, 'closed source tab produces a recoverable error');
+await harness.setSourceTab({ id: 1, url: sourceUrl, status: 'complete' });
+await harness.clickAction({ id: 1, url: sourceUrl });
+
+const closingHarness = await makeHarness({ delay: 100 });
+await closingHarness.clickAction({ id: 1, url: sourceUrl });
+await closingHarness.send({ action: 'START_ALL', options });
+await closingHarness.closeWindow(77);
+assert(closingHarness.state.storybookExportJob, 'crawler checkpoint remains persisted after tool window close');
+assert.notEqual(closingHarness.state.storybookExportJob.state, 'cancelled', 'closing the tool window does not cancel the crawler');
+await closingHarness.clickAction({ id: 1, url: sourceUrl });
+assert.equal(closingHarness.extensionWindows.size, 1, 'window can reopen while crawler state remains available');
+
+const current = await harness.send({ action: 'EXPORT_CURRENT', tabId: 999, tabUrl: 'https://unrelated.test/', options });
 assert(current.ok, current.error);
 assert.match(current.filename, /\.md$/);
+assert.match(current.filename, /storybook\.test/, 'Current Docs uses the toolbar action source rather than caller-provided tab data');
 assert.match(current.preview, /Storybook Design System/);
 assert.equal(harness.downloadRequests.length, 1, 'Current Docs creates exactly one download');
 assert.equal(harness.downloadRequests[0].saveAs, true);
@@ -267,6 +345,7 @@ const pageFiles = archiveFiles.filter((entry) => /^(guides|components|form)\/.+\
 assert.equal(pageFiles.length, 5, 'one Markdown document exists for each Docs entry');
 assert(pageFiles.every((entry) => entry.content.startsWith('# ') && entry.content.includes('Storybook ID:')));
 const archiveManifest = JSON.parse(archiveFiles.find((entry) => entry.path === 'manifest.json').content);
+assert.equal(archiveManifest.exporterVersion, manifest.version, 'All Docs archive records the current extension version');
 assert.deepEqual(archiveManifest.entries.map((entry) => entry.id), defaultEntries().map((entry) => entry.id));
 assert.equal(new Set(archiveManifest.entries.map((entry) => entry.path)).size, archiveManifest.entries.length);
 assert(archiveManifest.entries.every((entry) => !entry.path.split('/').includes('..')));
@@ -289,6 +368,21 @@ assert.equal(computedRows.length, 2, 'computed observations deduplicate within c
 assert.equal(computedRows.find((token) => token.context.theme === 'unknown').sources.length, 4);
 assert(archiveFiles.some((entry) => entry.content.includes('Props and variants')));
 assert(harness.state.storybookExportJob.entries.every((entry) => !Object.hasOwn(entry, 'page')), 'successful export deletes extracted page checkpoints');
+
+const figmaCssText = '/* Panel */\nwidth: calc(100% - 16px);\n/* Auto layout */\nbackground: linear-gradient(90deg, #fff, rgba(0,0,0,.1));';
+const figmaArchive = buildFigmaCssArchive(parseFigmaCss(figmaCssText), figmaCssText, 'Local design');
+const navigationCountBeforeFigma = harness.navigationUrls.length;
+const figmaResult = await harness.send({ action: 'EXPORT_FIGMA_CSS', files: figmaArchive.files, filename: figmaArchive.filename });
+assert(figmaResult.ok, figmaResult.error);
+assert.equal(figmaResult.filename, 'figma-css-local-design.zip');
+assert.equal(harness.downloadRequests.length, 3, 'Figma CSS import creates one independent ZIP download');
+assert.equal(harness.downloadRequests.at(-1).filename, 'figma-css-local-design.zip');
+assert.equal(harness.navigationUrls.length, navigationCountBeforeFigma, 'Figma CSS import does not navigate Storybook tabs');
+assert(harness.filesByZip.at(-1).some((file) => file.path === 'source/original.css'));
+assert.equal(harness.state.storybookExportJob.state, 'completed', 'Figma CSS import does not alter Storybook crawl state');
+const unsafeFigmaExport = await harness.send({ action: 'EXPORT_FIGMA_CSS', files: [...figmaArchive.files, { path: '../outside.md', content: 'unsafe' }], filename: figmaArchive.filename });
+assert.equal(unsafeFigmaExport.ok, false, 'background rejects unsafe archive paths before packaging');
+assert.equal(harness.downloadRequests.length, 3, 'rejected Figma archive does not create a download');
 
 const docsEntry = [{ id: 'guides-getting-started--docs', type: 'docs', title: 'Guides/Getting Started', name: 'Getting Started', tags: ['guide'] }];
 const manifestFor = (files) => JSON.parse(files.find((file) => file.path === 'manifest.json').content);
@@ -581,4 +675,4 @@ try {
 } finally {
   await rm(zipTestDir, { recursive: true, force: true });
 }
-console.log(JSON.stringify({ result: 'PASS', currentMarkdown: true, allDocsZip: archiveFiles.length, exactStoryIdPaths: true, collisionHashesOnly: true, pathLinksConsistent: true, deterministicCompletionOrder: true, defaultConcurrency: 1, fallbackCategory: 'components', tokenContextAndConflicts: true, checkpointDeletion: true, partialRetry: true, pauseResume: true, cancellationCleanup: true, zipSignatures: true, independentUnzip: true, mockPoolPeakNavigations: { sequential: serialHarness.peakNavigations, concurrency2: boundedHarness.peakNavigations, concurrency3: threeHarness.peakNavigations } }));
+console.log(JSON.stringify({ result: 'PASS', currentMarkdown: true, allDocsZip: archiveFiles.length, figmaCssZip: true, exactStoryIdPaths: true, collisionHashesOnly: true, pathLinksConsistent: true, deterministicCompletionOrder: true, defaultConcurrency: 1, fallbackCategory: 'components', tokenContextAndConflicts: true, checkpointDeletion: true, partialRetry: true, pauseResume: true, cancellationCleanup: true, zipSignatures: true, independentUnzip: true, mockPoolPeakNavigations: { sequential: serialHarness.peakNavigations, concurrency2: boundedHarness.peakNavigations, concurrency3: threeHarness.peakNavigations } }));

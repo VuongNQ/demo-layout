@@ -1,6 +1,7 @@
 importScripts('extractor.js');
 
 const JOB_KEY = 'storybookExportJob';
+const WINDOW_CONTEXT_KEY = 'storybookToolWindowContext';
 const MAX_PAGES = 120;
 const NAVIGATION_TIMEOUT_MS = 20000;
 const READINESS_TIMEOUT_MS = 16000;
@@ -9,11 +10,71 @@ const DEFAULT_CONCURRENCY = 1;
 let job = null;
 let runner = null;
 let persistQueue = Promise.resolve();
+let figmaCssExportActive = false;
 
 const now = () => Date.now();
 const errorText = (error) => String(error?.message || error || 'Unknown error').slice(0, 500);
 const clone = (value) => JSON.parse(JSON.stringify(value));
 let currentExport = false;
+let windowOpenQueue = Promise.resolve();
+
+async function openToolWindow(tab) {
+  const stored = await chrome.storage.session.get(WINDOW_CONTEXT_KEY).catch(() => ({}));
+  const previous = stored[WINDOW_CONTEXT_KEY] || {};
+  const clickedUrl = typeof tab?.url === 'string' ? tab.url : '';
+  const clickedFromTool = clickedUrl.startsWith(chrome.runtime.getURL(''));
+  const context = clickedFromTool
+    ? { ...previous }
+    : { ...previous, sourceTabId: Number.isInteger(tab?.id) ? tab.id : null, sourceUrl: clickedUrl };
+  if (Number.isInteger(context.windowId)) {
+    try {
+      await chrome.windows.get(context.windowId);
+      await chrome.storage.session.set({ [WINDOW_CONTEXT_KEY]: context });
+      await chrome.windows.update(context.windowId, { focused: true });
+      return;
+    } catch { context.windowId = null; }
+  }
+  await chrome.storage.session.set({ [WINDOW_CONTEXT_KEY]: context });
+  const created = await chrome.windows.create({
+    url: chrome.runtime.getURL('popup.html'),
+    type: 'popup', width: 760, height: 820, focused: true,
+  });
+  context.windowId = created.id;
+  await chrome.storage.session.set({ [WINDOW_CONTEXT_KEY]: context });
+}
+
+chrome.action.onClicked.addListener((tab) => {
+  windowOpenQueue = windowOpenQueue.catch(() => {}).then(() => openToolWindow(tab));
+  return windowOpenQueue.catch((error) => console.error('Could not open Storybook tool window:', error));
+});
+chrome.windows.onRemoved.addListener((windowId) => {
+  void chrome.storage.session.get(WINDOW_CONTEXT_KEY).then(async (stored) => {
+    const context = stored[WINDOW_CONTEXT_KEY];
+    if (context?.windowId === windowId) await chrome.storage.session.set({ [WINDOW_CONTEXT_KEY]: { ...context, windowId: null } });
+  }).catch(() => {});
+});
+
+async function sourceTabContext({ docsOnly = false } = {}) {
+  const stored = await chrome.storage.session.get(WINDOW_CONTEXT_KEY).catch(() => ({}));
+  const source = stored[WINDOW_CONTEXT_KEY];
+  if (!Number.isInteger(source?.sourceTabId) || !source.sourceUrl) throw new Error('Source browser tab context is unavailable. Close this window, open the Storybook page, and click the extension again.');
+  let tab;
+  try { tab = await chrome.tabs.get(source.sourceTabId); }
+  catch { throw new Error('The original source tab was closed. Open the Storybook Docs page and click the extension again.'); }
+  let captured;
+  let current;
+  try { captured = new URL(source.sourceUrl); current = new URL(tab.url || ''); }
+  catch { throw new Error('The original source tab does not contain a readable web page. Open Storybook Docs and click the extension again.'); }
+  if (!['http:', 'https:'].includes(captured.protocol) || current.origin !== captured.origin || current.pathname !== captured.pathname || current.search !== captured.search || current.hash !== captured.hash) {
+    throw new Error('The original source tab has navigated. Return to the intended Storybook page and click the extension again.');
+  }
+  if (docsOnly) {
+    const route = current.searchParams.get('path') || '';
+    const eligible = /^\/docs(?:\/|$)/.test(route) || /^\/docs(?:\/|$)/.test(current.pathname);
+    if (!eligible) throw new Error('The original tab is not on a Storybook Docs page. Open the Docs page, then click the extension action.');
+  }
+  return { tabId: tab.id, tabUrl: current.href };
+}
 
 async function loadJob() {
   if (job) return job;
@@ -474,7 +535,7 @@ function zipFilesFor(jobSnapshot) {
   }));
   const manifest = {
     schemaVersion: 1,
-    exporterVersion: '0.3.0',
+    exporterVersion: chrome.runtime.getManifest().version,
     jobId: jobSnapshot.id,
     sourceOrigin: new URL(jobSnapshot.sourceUrl).origin,
     sourceUrl: jobSnapshot.sourceUrl,
@@ -601,7 +662,7 @@ async function createZipUrl(files) {
     const clientsList = await clients.matchAll();
     exists = clientsList.some((client) => client.url === chrome.runtime.getURL('offscreen.html'));
   }
-  if (!exists) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['BLOBS'], justification: 'Package the user-requested Storybook Markdown files into one ZIP download.' });
+  if (!exists) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['BLOBS'], justification: 'Package user-requested local export files into one ZIP download.' });
   const response = await chrome.runtime.sendMessage({ action: 'MAKE_ZIP', files });
   if (!response?.ok) throw new Error(response?.error || 'ZIP packaging failed.');
   return response.url;
@@ -665,6 +726,50 @@ async function downloadCurrent(message) {
   const url = `data:text/markdown;charset=utf-8,${encodeURIComponent(output)}`;
   await chrome.downloads.download({ url, filename, saveAs: true, conflictAction: 'uniquify' });
   return { filename, pages: 1, preview: output.slice(0, 8000) };
+}
+
+function validateFigmaCssArchive(files, filename) {
+  if (!Array.isArray(files) || files.length < 6 || files.length > 65535) throw new Error('Figma CSS archive has an invalid file list.');
+  if (typeof filename !== 'string' || !/^figma-css-[\p{L}\p{N}_-]{1,80}\.zip$/u.test(filename)) throw new Error('Figma CSS archive filename is unsafe.');
+  const required = new Set(['README.md', 'INDEX.md', 'manifest.json', 'EXTRACTION_REPORT.md', 'source/original.css', 'tokens/observed-values.md']);
+  const paths = new Set();
+  const encoder = new TextEncoder();
+  let byteLength = 0;
+  for (const file of files) {
+    if (!file || typeof file.path !== 'string' || typeof file.content !== 'string') throw new Error('Figma CSS archive contains an invalid file record.');
+    const isRootMember = ['README.md', 'INDEX.md', 'manifest.json', 'EXTRACTION_REPORT.md'].includes(file.path);
+    const isSource = file.path === 'source/original.css';
+    const isTokens = file.path === 'tokens/observed-values.md';
+    const isLayer = /^layers\/\d{4,}-[\p{L}\p{N}_-]{1,64}\.md$/u.test(file.path);
+    if (!isRootMember && !isSource && !isTokens && !isLayer) throw new Error(`Figma CSS archive contains an unsafe path: ${file.path}`);
+    if (paths.has(file.path)) throw new Error(`Figma CSS archive contains a duplicate path: ${file.path}`);
+    paths.add(file.path);
+    required.delete(file.path);
+    byteLength += encoder.encode(file.content).length;
+    if (byteLength > 16_000_000) throw new Error('Figma CSS archive exceeds the local 16 MB package limit.');
+  }
+  if (required.size) throw new Error(`Figma CSS archive is missing required files: ${[...required].join(', ')}`);
+  if (![...paths].some((archivePath) => archivePath.startsWith('layers/'))) throw new Error('Figma CSS archive contains no layer pages.');
+}
+
+async function downloadFigmaCss(message) {
+  await loadJob();
+  if (figmaCssExportActive || currentExport) return { ok: false, error: 'Another extension export is already running.' };
+  if (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) return { ok: false, error: 'Finish or pause the active Storybook export before creating a Figma CSS ZIP.' };
+  validateFigmaCssArchive(message.files, message.filename);
+  figmaCssExportActive = true;
+  let url = '';
+  try {
+    url = await createZipUrl(message.files);
+    const downloadId = await chrome.downloads.download({ url, filename: message.filename, saveAs: true, conflictAction: 'uniquify' });
+    const state = await waitForDownload(downloadId, url);
+    if (state !== 'complete') throw new Error('Chrome interrupted the Figma CSS ZIP download.');
+    return { ok: true, filename: message.filename };
+  } finally {
+    if (url) await releaseArchiveUrl(url);
+    else await closeOffscreenDocument();
+    figmaCssExportActive = false;
+  }
 }
 
 function renderCurrent(pages, options, origin, warnings) {
@@ -777,7 +882,9 @@ async function scheduleRunner() {
 }
 
 async function startAll(message) {
+  const source = await sourceTabContext();
   await loadJob();
+  if (figmaCssExportActive) return { ok: false, error: 'Wait for the Figma CSS ZIP export to finish before starting a Storybook crawl.' };
   if (currentExport) return { ok: false, error: 'A Current Docs export is already running.' };
   if (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) return { ok: true, duplicate: true, job: progressState() };
   if (job && job.state === 'paused') return { ok: false, error: 'Resume or cancel the paused job before starting another export.' };
@@ -786,7 +893,7 @@ async function startAll(message) {
   job = {
     id: `job-${now()}-${Math.random().toString(36).slice(2, 8)}`,
     state: 'discovering', phase: 'Discovering Storybook Docs metadata',
-    sourceTabId: message.tabId, sourceUrl: message.tabUrl, indexUrl: '',
+    sourceTabId: source.tabId, sourceUrl: source.tabUrl, indexUrl: '',
     options: normalizeOptions(message.options), concurrency: Math.max(1, Math.min(3, Number(message.concurrency) || DEFAULT_CONCURRENCY)),
     entries: [], discoveredCount: 0, warnings: [], tabIds: [], currentPage: null,
     createdAt: now(), startedAt: now(), updatedAt: now(), pauseRequested: false, cancelRequested: false,
@@ -798,6 +905,7 @@ async function startAll(message) {
 
 async function resumeJob() {
   await loadJob();
+  if (figmaCssExportActive) return { ok: false, error: 'Wait for the Figma CSS ZIP export to finish before resuming the Storybook crawl.' };
   if (!job) return { ok: false, error: 'There is no saved export to resume.' };
   if (['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) {
     if (!runner) {
@@ -830,6 +938,7 @@ async function resumeJob() {
 
 async function controlJob(action, id) {
   await loadJob();
+  if (action === 'RETRY_ENTRY' && figmaCssExportActive) return { ok: false, error: 'Wait for the Figma CSS ZIP export to finish before retrying a Storybook page.' };
   if (!job) return { ok: false, error: 'No export job is available.' };
   if (action === 'PAUSE') {
     if (job.state !== 'crawling') return { ok: false, error: 'Pause is available while crawling.' };
@@ -906,16 +1015,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.action === 'MAKE_ZIP' || message?.action === 'REVOKE_URL') return;
   (async () => {
     if (message?.action === 'GET_JOB') return { ok: true, job: await getJob() };
+    if (message?.action === 'GET_SOURCE_TAB') return { ok: true, ...(await sourceTabContext()) };
     if (message?.action === 'START_ALL') return startAll(message);
     if (message?.action === 'RESUME') return resumeJob();
     if (['PAUSE', 'CANCEL', 'RETRY_ENTRY'].includes(message?.action)) return controlJob(message.action, message.id);
+    if (message?.action === 'EXPORT_FIGMA_CSS') return downloadFigmaCss(message);
     if (message?.action === 'EXPORT_CURRENT') {
+      const source = await sourceTabContext({ docsOnly: true });
       await loadJob();
-      if (currentExport || (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state))) return { ok: false, error: 'Another export job is already active.' };
+      if (figmaCssExportActive || currentExport || (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state))) return { ok: false, error: 'Another export job is already active.' };
       const cleanup = await closeWorkerTabs();
       if (!cleanup.ok) return { ok: false, error: `Close temporary tabs ${cleanup.remaining.join(', ')} before exporting.` };
       currentExport = true;
-      try { return { ok: true, ...(await downloadCurrent(message)) }; }
+      try { return { ok: true, ...(await downloadCurrent({ ...message, ...source })) }; }
       finally { currentExport = false; }
     }
     return { ok: false, error: 'Unsupported action.' };

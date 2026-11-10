@@ -7,3 +7,4 @@ dist-ssr
 # Real data never belongs in this repository. See README.
 local-data/
 .npm-cache/
+tools/storybook-to-markdown/release/storybook-to-markdown-v0.3.0.zip

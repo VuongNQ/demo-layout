@@ -11,7 +11,16 @@ on:
     paths:
       - tools/storybook-to-markdown/**
       - .github/workflows/build-storybook-extension.yml
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      version_mode:
+        description: Versioning mode for the artifact build
+        required: true
+        type: choice
+        options:
+          - raw
+          - minor
+        default: raw
 
 permissions:
   contents: read
@@ -35,6 +44,7 @@ jobs:
           node --check tools/storybook-to-markdown/background.js
           node --check tools/storybook-to-markdown/extractor.js
           node --check tools/storybook-to-markdown/popup.js
+          node --check tools/storybook-to-markdown/figma-css.js
           node --check tools/storybook-to-markdown/offscreen.js
 
       - name: Run extension smoke tests
@@ -44,9 +54,9 @@ jobs:
         working-directory: tools/storybook-to-markdown
         run: npm test
 
-      - name: Build extension
+      - name: Build extension without changing version
         working-directory: tools/storybook-to-markdown
-        run: npm run build
+        run: npm run build:raw
 
       - name: Package and verify validation output
         working-directory: tools/storybook-to-markdown
@@ -71,7 +81,24 @@ jobs:
 
       - name: Build and package extension
         working-directory: tools/storybook-to-markdown
-        run: npm run package
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          VERSION_MODE: ${{ inputs.version_mode }}
+        run: |
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            node scripts/bump-version.mjs minor
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" && "$VERSION_MODE" == "minor" ]]; then
+            node scripts/bump-version.mjs minor
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" && "$VERSION_MODE" == "raw" ]]; then
+            echo "Manual artifact build selected raw version mode."
+          else
+            echo "Unsupported versioning mode for event: $EVENT_NAME / $VERSION_MODE" >&2
+            exit 1
+          fi
+          node tests/smoke.mjs && npm test
+          npm run build:raw
+          npm run package
 
       - name: Verify extension ZIP and version
         id: archive
@@ -85,11 +112,12 @@ jobs:
           unzip -t "$ARCHIVE"
           unzip -Z1 "$ARCHIVE" | grep -Fxq 'manifest.json'
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Artifact version ${VERSION} uses this runner's build; the bump is not written back to the repository."
 
       - name: Upload extension ZIP artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: storybook-to-markdown-v${{ steps.archive.outputs.version }}-${{ github.sha }}
+          name: storybook-to-markdown-v${{ steps.archive.outputs.version }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: tools/storybook-to-markdown/release/storybook-to-markdown-v${{ steps.archive.outputs.version }}.zip
           if-no-files-found: error
           retention-days: 30
