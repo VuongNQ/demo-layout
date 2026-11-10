@@ -19,15 +19,38 @@ const popupHtml = await read('popup.html');
 assert.match(popupHtml, /<progress[^>]+aria-label="Export progress"/);
 assert.match(popupHtml, /aria-live="polite"/);
 assert.match(popupHtml, /Idle · ready to export/);
+assert.match(popupHtml, /role="tablist"/);
+assert.match(popupHtml, /role="tab"[^>]+aria-selected="true"/);
+assert.match(popupHtml, /role="tabpanel"[^>]+hidden/);
+assert.match(popupHtml, /id="close-window"[^>]+aria-label="Close extension window"/);
+assert.equal((popupHtml.match(/\bid="storybook-message"/g) || []).length, 1);
+assert.equal((popupHtml.match(/\bid="figma-message"/g) || []).length, 1);
+assert(!popupHtml.includes('id="message"'), 'mode-specific messages do not share a result node');
 assert(!popupHtml.includes('id="concurrency"'), 'popup does not expose concurrency above the approved serial default');
 const popupJs = await read('popup.js');
 for (const state of ['discovering', 'crawling', 'processing', 'compressing', 'completed', 'paused', 'cancelled', 'failed']) assert(popupJs.includes(`${state}:`));
+assert(!popupJs.includes('tabs.query({ active: true, currentWindow: true })'), 'Current Docs does not query the extension window as source');
+assert.match(popupJs, /event\.key === 'Home'.*event\.key === 'End'.*mode === 'storybook'/);
+assert(!popupJs.includes('beforeunload'));
+assert(!popupJs.includes('onblur') && !popupJs.includes('onfocusout'), 'window focus changes are not suppressed or used to close the tool');
+assert.match(popupJs, /chrome\.windows\.getCurrent\(\)/, 'Close resolves the extension window from its page context');
+assert.match(popupJs, /const windowId = currentWindow\?\.id;[\s\S]{0,100}Number\.isInteger\(windowId\) \|\| windowId < 0/, 'Close rejects missing and negative window IDs');
+assert.match(popupJs, /chrome\.windows\.remove\(windowId\)/, 'Close removes the concrete current extension window');
+assert(!popupJs.includes('WINDOW_ID_CURRENT'), 'Close does not pass the -2 sentinel to windows.remove');
+assert(!/close-window[\s\S]{0,500}chrome\.tabs\.remove/.test(popupJs), 'Close does not remove browser tabs');
+assert.match((await read('background.js')), /chrome\.windows\.create\([\s\S]{0,150}type: 'popup'/);
 
 async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFrames = null } = {}) {
   const messages = new Set();
   const tabListeners = new Set();
   const downloadListeners = new Set();
   const tabs = new Map();
+  const extensionWindows = new Map();
+  const windowFocusCalls = [];
+  const actionClicks = new Set();
+  const removedWindowListeners = new Set();
+  let windowSequence = 77;
+  let sourceTab = { id: 1, url: 'https://storybook.test/storybook/?path=/docs/guide--docs', status: 'complete' };
   const downloadItems = new Map();
   const downloadRequests = [];
   const filesByZip = [];
@@ -93,6 +116,10 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
       getURL: (path) => `chrome-extension://mock/${path}`,
     },
     storage: {
+      session: {
+        get: async (key) => ({ [key]: state[key] || { sourceTabId: 1, sourceUrl: sourceTab.url, windowId: null } }),
+        set: async (value) => Object.assign(state, structuredClone(value)),
+      },
       local: {
         get: async (key) => ({ [key]: state[key] }),
         set: async (value) => Object.assign(state, structuredClone(value)),
@@ -101,7 +128,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     tabs: {
       onUpdated: event(tabListeners),
       create: async () => { const id = tabSequence++; tabs.set(id, { id, url: 'about:blank', status: 'complete' }); return tabs.get(id); },
-      get: async (id) => tabs.get(id),
+      get: async (id) => id === 1 ? sourceTab : tabs.get(id),
       update: async (id, update) => {
         const tab = tabs.get(id);
         tab.url = update.url;
@@ -120,6 +147,14 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
         return { ...tab };
       },
       remove: async (id) => tabs.delete(id),
+    },
+    action: { onClicked: event(actionClicks) },
+    windows: {
+      onRemoved: event(removedWindowListeners),
+      get: async (id) => { if (!extensionWindows.has(id)) throw new Error('No such window'); return extensionWindows.get(id); },
+      update: async (id, options) => { windowFocusCalls.push({ id, ...options }); return Object.assign(extensionWindows.get(id), options); },
+      create: async (options) => { const win = { id: windowSequence++, ...options }; extensionWindows.set(win.id, win); return win; },
+      remove: async (id) => { extensionWindows.delete(id); chrome.windows.onRemoved.emit(id); },
     },
     scripting: {
       executeScript: async ({ target, func, args = [] }) => {
@@ -223,7 +258,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     }
     throw new Error(`Timed out waiting for export state. Last state: ${state.storybookExportJob?.state}`);
   }
-  return { send, waitFor, state, tabs, filesByZip, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, get peakNavigations() { return peakNavigations; } };
+  return { send, waitFor, state, tabs, extensionWindows, windowFocusCalls, actionClicks, clickAction: (tab) => [...actionClicks][0](tab), closeWindow: (id) => chrome.windows.remove(id), setSourceTab: (tab) => { sourceTab = tab; }, getSourceTab: () => sourceTab, filesByZip, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, get peakNavigations() { return peakNavigations; } };
 }
 
 function defaultEntries() {
@@ -240,9 +275,47 @@ const harness = await makeHarness({ delay: 3 });
 const sourceUrl = 'https://storybook.test/storybook/?path=/docs/guide--docs';
 const options = { props: true, tokens: true, examples: true };
 
-const current = await harness.send({ action: 'EXPORT_CURRENT', tabId: 1, tabUrl: sourceUrl, options });
+await harness.clickAction({ id: 1, url: sourceUrl });
+assert.equal(harness.extensionWindows.size, 1, 'toolbar action opens one extension window');
+await harness.clickAction({ id: 1, url: sourceUrl });
+assert.equal(harness.extensionWindows.size, 1, 'second toolbar click reuses the existing extension window');
+assert.equal(harness.windowFocusCalls.at(-1).focused, true, 'second toolbar click focuses the existing window');
+await harness.clickAction({ id: 88, url: 'chrome-extension://mock/popup.html' });
+assert.equal((await harness.send({ action: 'GET_SOURCE_TAB' })).tabId, 1, 'toolbar clicks from the extension window preserve the Storybook source context');
+await harness.closeWindow(77);
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(harness.extensionWindows.size, 0, 'native window close removes only the extension window');
+assert.equal(harness.state.storybookToolWindowContext.windowId, null, 'native close invalidates the saved extension-window ID');
+assert.equal(harness.getSourceTab().id, 1, 'closing the extension window leaves the originating Storybook tab open');
+await harness.clickAction({ id: 1, url: sourceUrl });
+assert.equal(harness.extensionWindows.size, 1, 'toolbar action recovers after native window closure');
+assert(harness.extensionWindows.has(78), 'reopening creates a fresh concrete tool window');
+assert.equal((await harness.send({ action: 'GET_SOURCE_TAB' })).tabId, 1, 'source tab is the toolbar click origin');
+await harness.setSourceTab({ id: 1, url: 'https://storybook.test/storybook/?path=/docs/other--docs', status: 'complete' });
+assert.match((await harness.send({ action: 'GET_SOURCE_TAB' })).error, /navigated/i, 'navigated source tab is rejected');
+await harness.setSourceTab({ id: 1, url: sourceUrl, status: 'complete' });
+await harness.clickAction({ id: 1, url: sourceUrl });
+await harness.setSourceTab({ id: 1, url: 'https://example.test/', status: 'complete' });
+await harness.clickAction({ id: 1, url: 'https://example.test/' });
+assert.match((await harness.send({ action: 'EXPORT_CURRENT', options })).error, /not on a Storybook Docs page/i, 'non-Storybook toolbar source is rejected for Current Docs');
+await harness.setSourceTab(null);
+assert.match((await harness.send({ action: 'GET_SOURCE_TAB' })).error, /source tab/i, 'closed source tab produces a recoverable error');
+await harness.setSourceTab({ id: 1, url: sourceUrl, status: 'complete' });
+await harness.clickAction({ id: 1, url: sourceUrl });
+
+const closingHarness = await makeHarness({ delay: 100 });
+await closingHarness.clickAction({ id: 1, url: sourceUrl });
+await closingHarness.send({ action: 'START_ALL', options });
+await closingHarness.closeWindow(77);
+assert(closingHarness.state.storybookExportJob, 'crawler checkpoint remains persisted after tool window close');
+assert.notEqual(closingHarness.state.storybookExportJob.state, 'cancelled', 'closing the tool window does not cancel the crawler');
+await closingHarness.clickAction({ id: 1, url: sourceUrl });
+assert.equal(closingHarness.extensionWindows.size, 1, 'window can reopen while crawler state remains available');
+
+const current = await harness.send({ action: 'EXPORT_CURRENT', tabId: 999, tabUrl: 'https://unrelated.test/', options });
 assert(current.ok, current.error);
 assert.match(current.filename, /\.md$/);
+assert.match(current.filename, /storybook\.test/, 'Current Docs uses the toolbar action source rather than caller-provided tab data');
 assert.match(current.preview, /Storybook Design System/);
 assert.equal(harness.downloadRequests.length, 1, 'Current Docs creates exactly one download');
 assert.equal(harness.downloadRequests[0].saveAs, true);

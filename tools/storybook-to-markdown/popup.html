@@ -7,22 +7,53 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <main>
-    <h1>Storybook → Markdown</h1>
-    <p class="muted">Extract rendered Docs locally. No content is uploaded.</p>
-    <p id="idle-status" role="status" aria-live="polite">Idle · ready to export.</p>
+  <header class="app-header">
+    <div><h1>Storybook → Markdown</h1><p class="muted">Local export tools</p></div>
+    <button id="close-window" class="secondary" type="button" aria-label="Close extension window" title="Close extension window">Close</button>
+  </header>
+  <nav class="mode-tabs" role="tablist" aria-label="Export mode">
+    <button id="mode-storybook" class="mode-tab" type="button" role="tab" aria-selected="true" aria-controls="storybook-panel" tabindex="0">Storybook Docs</button>
+    <button id="mode-figma" class="mode-tab" type="button" role="tab" aria-selected="false" aria-controls="figma-css-panel" tabindex="-1">Figma CSS</button>
+  </nav>
+  <main class="content">
+    <section id="storybook-panel" role="tabpanel" aria-labelledby="mode-storybook">
+      <p class="muted">Extract rendered Docs locally. No content is uploaded.</p>
+      <p id="idle-status" role="status" aria-live="polite">Idle · ready to export.</p>
+      <section id="new-export" aria-labelledby="export-heading">
+        <h2 id="export-heading">New export</h2>
+        <label class="option"><input type="radio" name="scope" value="current" checked> Current Docs page (.md)</label>
+        <label class="option"><input type="radio" name="scope" value="all"> All discoverable Docs (.zip)</label>
+        <fieldset>
+          <legend>Include</legend>
+          <label class="option"><input id="props" type="checkbox" checked> Props, variants & tables</label>
+          <label class="option"><input id="tokens" type="checkbox" checked> Observed token values</label>
+          <label class="option"><input id="examples" type="checkbox" checked> Examples & guidelines</label>
+        </fieldset>
+        <button id="start">Extract & download</button>
+        <details id="current-preview" hidden><summary>Current Docs Markdown preview</summary><pre id="preview">No export yet.</pre></details>
+      </section>
 
-    <fieldset class="mode-picker" aria-label="Import mode">
-      <legend>Import mode</legend>
-      <label class="option"><input id="mode-storybook" type="radio" name="import-mode" value="storybook" checked> Storybook Docs</label>
-      <label class="option"><input id="mode-figma" type="radio" name="import-mode" value="figma"> Figma CSS</label>
-    </fieldset>
+      <section id="job-panel" aria-labelledby="job-heading" hidden>
+        <div class="job-title"><h2 id="job-heading">Export progress</h2><span id="state-pill" class="state-pill">Idle</span></div>
+        <div id="live-status" role="status" aria-live="polite" aria-atomic="true">No export in progress.</div>
+        <div class="progress-line"><progress id="progress" max="100" value="0" aria-label="Export progress">0%</progress><span id="percent">0%</span></div>
+        <p id="counts" class="counts">0 / 0 pages · 0 succeeded · 0 failed</p>
+        <p id="elapsed" class="muted">Elapsed: 0:00</p>
+        <p id="current-page" class="current-page"></p>
+        <div class="controls"><button id="pause" class="secondary">Pause</button><button id="resume" class="secondary">Resume</button><button id="cancel" class="danger">Cancel</button></div>
+        <button id="retry-all" class="secondary full" hidden>Retry failed pages</button>
+        <div id="pages" class="pages" aria-label="Docs page outcomes"></div>
+        <button id="new-after-terminal" class="secondary full" hidden>Start another export</button>
+      </section>
+      <p id="storybook-message" role="status" aria-live="polite"></p>
+    </section>
 
-    <section id="figma-css-panel" aria-labelledby="figma-css-heading" hidden>
+    <section id="figma-css-panel" role="tabpanel" aria-labelledby="mode-figma" hidden>
       <h2 id="figma-css-heading">Figma Copy CSS import</h2>
       <p class="muted">Paste copied CSS. It stays in this extension and is not sent to Figma or another service.</p>
-      <label class="figma-field" for="figma-selection-url">Selection URL (optional)</label>
-      <input id="figma-selection-url" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://www.figma.com/design/...">
+      <label class="figma-field" for="figma-selection-url">Figma Source URL</label>
+      <input id="figma-selection-url" type="text" inputmode="url" autocomplete="off" spellcheck="false" aria-describedby="figma-source-url-help" placeholder="https://www.figma.com/design/...">
+      <p id="figma-source-url-help" class="field-help">Optional. Paste a Figma Design or Prototype URL to preserve the source reference. CSS is imported from the text you paste, not fetched from Figma.</p>
       <label class="figma-field" for="figma-export-name">Export name (optional)</label>
       <input id="figma-export-name" type="text" maxlength="120" autocomplete="off" placeholder="Design section">
       <label class="figma-field" for="figma-css-input">Pasted Figma Copy CSS</label>
@@ -43,41 +74,6 @@
       </section>
     </section>
 
-    <section id="new-export" aria-labelledby="export-heading">
-      <h2 id="export-heading">New export</h2>
-      <label class="option"><input type="radio" name="scope" value="current" checked> Current Docs page (.md)</label>
-      <label class="option"><input type="radio" name="scope" value="all"> All discoverable Docs (.zip)</label>
-      <fieldset>
-        <legend>Include</legend>
-        <label class="option"><input id="props" type="checkbox" checked> Props, variants & tables</label>
-        <label class="option"><input id="tokens" type="checkbox" checked> Observed token values</label>
-        <label class="option"><input id="examples" type="checkbox" checked> Examples & guidelines</label>
-      </fieldset>
-      <button id="start">Extract & download</button>
-      <details id="current-preview" hidden><summary>Current Docs Markdown preview</summary><pre id="preview">No export yet.</pre></details>
-    </section>
-
-    <section id="job-panel" aria-labelledby="job-heading" hidden>
-      <div class="job-title"><h2 id="job-heading">Export progress</h2><span id="state-pill" class="state-pill">Idle</span></div>
-      <div id="live-status" role="status" aria-live="polite" aria-atomic="true">No export in progress.</div>
-      <div class="progress-line">
-        <progress id="progress" max="100" value="0" aria-label="Export progress">0%</progress>
-        <span id="percent">0%</span>
-      </div>
-      <p id="counts" class="counts">0 / 0 pages · 0 succeeded · 0 failed</p>
-      <p id="elapsed" class="muted">Elapsed: 0:00</p>
-      <p id="current-page" class="current-page"></p>
-      <div class="controls">
-        <button id="pause" class="secondary">Pause</button>
-        <button id="resume" class="secondary">Resume</button>
-        <button id="cancel" class="danger">Cancel</button>
-      </div>
-      <button id="retry-all" class="secondary full" hidden>Retry failed pages</button>
-      <div id="pages" class="pages" aria-label="Docs page outcomes"></div>
-      <button id="new-after-terminal" class="secondary full" hidden>Start another export</button>
-    </section>
-
-    <p id="message" role="status" aria-live="polite"></p>
   </main>
   <script type="module" src="popup.js"></script>
 </body>

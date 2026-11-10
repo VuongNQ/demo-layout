@@ -15,6 +15,11 @@ const parsed = parseFigmaCss(source, 'https://www.figma.com/design/Abc123/file-n
 assert.equal(parsed.selection.kind, 'design');
 assert.equal(parsed.selection.nodeId, '13:3169');
 assert.match(parsed.selection.url, /node-id=13-3169/);
+const prototypeParsed = parseFigmaCss(source, 'https://www.figma.com/proto/File9/prototype?node-id=5-6');
+assert.equal(prototypeParsed.selection.kind, 'prototype');
+assert.equal(prototypeParsed.selection.nodeId, '5:6');
+const emptyUrlParsed = parseFigmaCss(source, '');
+assert.equal(emptyUrlParsed.selection, null, 'empty optional Figma source URL does not block CSS parsing');
 assert.deepEqual(parsed.layers.map(({ name }) => name), ['Panel', 'Image', 'Item', 'Item', '../CON', 'Carte 漢字', 'Broken declaration layer']);
 assert.equal(parsed.layers[0].markdownPath, 'layers/0001-panel.md');
 assert.equal(parsed.layers[1].markdownPath, 'layers/0002-image.md');
@@ -56,6 +61,9 @@ assert(parsed.layers.at(-1).declarations.some(({ raw, valid }) => !valid && raw.
 assert.equal(source.length, parsed.sourceLength);
 assert.throws(() => parseFigmaCss('  '), /Paste Figma Copy CSS/);
 assert.throws(() => parseFigmaCss('/* Empty */\ncolor: red;', 'https://evil.example/design/abc/file?node-id=1-2'), /Only https:\/\/www\.figma\.com/);
+assert.throws(() => parseFigmaCss('/* Empty */\ncolor: red;', 'not a URL'), /valid Figma Design or Prototype selection URL/);
+assert.throws(() => parseFigmaCss('/* Empty */\ncolor: red;', 'https://www.figma.com/community/file/abc'), /must use \/design\/<fileKey>\/<name> or \/proto\//);
+assert.throws(() => parseFigmaCss('/* Empty */\ncolor: red;', 'https://www.figma.com/design/Abc/file?node-id=bad'), /node-id must contain two numeric parts/);
 assert.equal(parseFigmaSelectionUrl('https://www.figma.com/proto/File9/prototype?node-id=5-6').kind, 'prototype');
 assert.equal(parseFigmaSelectionUrl(''), null);
 assert.equal(parseFigmaCss('/* CON */\nwidth: 1px;').layers[0].markdownPath, 'layers/0001-layer-con.md');
@@ -70,6 +78,8 @@ const xssLikeSource = '/* <img src=x onerror=alert(1)> */\n--payload: "</textare
 const xssParsed = parseFigmaCss(xssLikeSource);
 assert.equal(xssParsed.layers[0].name, '<img src=x onerror=alert(1)>');
 const archive = buildFigmaCssArchive(parsed, source, '../Unsafe Export Name');
+const emptyUrlArchive = buildFigmaCssArchive(emptyUrlParsed, source, 'Optional URL');
+const prototypeArchive = buildFigmaCssArchive(prototypeParsed, source, 'Prototype URL');
 assert.equal(archive.filename, 'figma-css-unsafe-export-name.zip');
 const archivePaths = new Set(archive.files.map(({ path }) => path));
 for (const file of ['README.md', 'INDEX.md', 'manifest.json', 'EXTRACTION_REPORT.md', 'source/original.css', 'tokens/observed-values.md']) assert(archivePaths.has(file));
@@ -78,6 +88,11 @@ assert(archive.files.find(({ path }) => path === 'tokens/observed-values.md').co
 assert(archive.files.find(({ path }) => path === 'tokens/observed-values.md').content.includes('Shadows/shadow-md'));
 assert(!('parent' in JSON.parse(archive.files.find(({ path }) => path === 'manifest.json').content).layers[0]));
 const parsedManifest = JSON.parse(archive.files.find(({ path }) => path === 'manifest.json').content);
+assert.deepEqual(parsedManifest.source, parsed.selection, 'provided Design URL is retained as export source metadata');
+assert.equal(JSON.parse(prototypeArchive.files.find(({ path }) => path === 'manifest.json').content).source.kind, 'prototype', 'provided Prototype URL is retained as export source metadata');
+assert.match(archive.files.find(({ path }) => path === 'INDEX.md').content, /Selection reference: https:\/\/www\.figma\.com\/design\/Abc123\/file-name\?node-id=13-3169/);
+assert.equal(JSON.parse(emptyUrlArchive.files.find(({ path }) => path === 'manifest.json').content).source, null, 'empty URL exports without inventing source metadata');
+assert.equal(emptyUrlArchive.files.find(({ path }) => path === 'source/original.css').content, source);
 assert(!('component' in parsedManifest) && !('components' in parsedManifest), 'archive does not fabricate component metadata');
 assert.match(parsedManifest.hierarchy, /not inferred/);
 assert.equal(parsedManifest.layers[0].declarations.find(({ property }) => property === 'width').value, ' calc(100% - 40px)');
@@ -97,6 +112,9 @@ assert(!/\.innerHTML\s*=/.test(popupSource), 'preview uses textContent and DOM n
 assert.match(popupSource, /figma-warning-count'\)\.textContent = String\(parsed\.warnings\.length\)/);
 const popupHtml = await readFile(new URL('../popup.html', import.meta.url), 'utf8');
 for (const id of ['mode-figma', 'figma-selection-url', 'figma-css-input', 'figma-parse', 'figma-layer-count', 'figma-warning-count', 'figma-export', 'figma-clear']) assert(popupHtml.includes(`id="${id}"`), `popup provides ${id}`);
+assert.match(popupHtml, /<label class="figma-field" for="figma-selection-url">Figma Source URL<\/label>/);
+assert.match(popupHtml, /id="figma-source-url-help"[^>]*>Optional\. Paste a Figma Design or Prototype URL to preserve the source reference\. CSS is imported from the text you paste, not fetched from Figma\./);
+assert.match(popupHtml, /id="figma-selection-url"[^>]+aria-describedby="figma-source-url-help"/);
 
 const offscreenSource = await readFile(new URL('../offscreen.js', import.meta.url), 'utf8');
 function memberNames(zip) {
@@ -145,6 +163,15 @@ try {
   const members = memberNames(zipBytes).sort();
   assert.deepEqual(members, [...archivePaths].sort());
   assert(members.includes('manifest.json'));
+
+  let emptyUrlResponse;
+  listeners.values().next().value({ action: 'MAKE_ZIP', files: emptyUrlArchive.files }, {}, (value) => { emptyUrlResponse = value; });
+  assert(emptyUrlResponse?.ok, 'Figma CSS ZIP generation works with an empty optional URL');
+  const emptyUrlZipPath = join(temporaryDirectory, 'empty-source-url.zip');
+  await writeFile(emptyUrlZipPath, Buffer.from(await objectUrls.get(emptyUrlResponse.url).arrayBuffer()));
+  const emptyUrlIntegrity = spawnSync('unzip', ['-t', emptyUrlZipPath], { encoding: 'utf8' });
+  assert.equal(emptyUrlIntegrity.status, 0, emptyUrlIntegrity.stderr || emptyUrlIntegrity.stdout);
+  assert.equal(execFileSync('unzip', ['-p', emptyUrlZipPath, 'manifest.json'], { encoding: 'utf8' }).includes('"source": null'), true);
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }

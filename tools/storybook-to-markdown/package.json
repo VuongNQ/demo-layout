@@ -1,15 +1,19 @@
 {
   "name": "storybook-to-markdown-extension",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "package": "node scripts/package.mjs",
+    "build": "npm run build:patch",
+    "build:raw": "node scripts/build.mjs",
+    "build:patch": "node scripts/bump-version.mjs patch && npm run build:raw",
+    "build:minor": "node scripts/bump-version.mjs minor && npm run build:raw",
+    "package": "npm run build:raw && node scripts/package.mjs",
     "verify": "node scripts/verify.mjs",
     "clean": "node scripts/clean.mjs",
-    "test": "node tests/build-packaging.mjs && node tests/figma-css.mjs"
+    "test": "node tests/build-packaging.mjs && node tests/figma-css.mjs && node tests/popup-ui.mjs && node tests/versioning.mjs"
   }
 }
