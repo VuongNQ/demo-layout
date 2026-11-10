@@ -535,7 +535,7 @@ function zipFilesFor(jobSnapshot) {
   }));
   const manifest = {
     schemaVersion: 1,
-    exporterVersion: '0.3.0',
+    exporterVersion: chrome.runtime.getManifest().version,
     jobId: jobSnapshot.id,
     sourceOrigin: new URL(jobSnapshot.sourceUrl).origin,
     sourceUrl: jobSnapshot.sourceUrl,

@@ -6,12 +6,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
 import { buildFigmaCssArchive, parseFigmaCss } from '../figma-css.js';
+import { parseVersion } from '../scripts/versioning.mjs';
 
 const directory = new URL('../', import.meta.url);
 const read = (name) => readFile(new URL(name, directory), 'utf8');
 const manifest = JSON.parse(await read('manifest.json'));
+const packageJson = JSON.parse(await read('package.json'));
 assert.equal(manifest.manifest_version, 3);
-assert.equal(manifest.version, '0.3.0');
+assert.doesNotThrow(() => parseVersion(manifest.version, 'manifest.json version'));
+assert.equal(packageJson.version, manifest.version, 'package.json version matches the authoritative manifest version');
 assert(manifest.permissions.includes('storage'));
 assert(manifest.permissions.includes('offscreen'));
 assert(!manifest.permissions.includes('unlimitedStorage'));
@@ -105,6 +108,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     runtime: {
       onMessage: event(messages),
       onStartup: event(new Set()),
+      getManifest: () => structuredClone(manifest),
       sendMessage: async (message) => {
         if (message.action === 'MAKE_ZIP') {
           filesByZip.push(message.files);
@@ -341,6 +345,7 @@ const pageFiles = archiveFiles.filter((entry) => /^(guides|components|form)\/.+\
 assert.equal(pageFiles.length, 5, 'one Markdown document exists for each Docs entry');
 assert(pageFiles.every((entry) => entry.content.startsWith('# ') && entry.content.includes('Storybook ID:')));
 const archiveManifest = JSON.parse(archiveFiles.find((entry) => entry.path === 'manifest.json').content);
+assert.equal(archiveManifest.exporterVersion, manifest.version, 'All Docs archive records the current extension version');
 assert.deepEqual(archiveManifest.entries.map((entry) => entry.id), defaultEntries().map((entry) => entry.id));
 assert.equal(new Set(archiveManifest.entries.map((entry) => entry.path)).size, archiveManifest.entries.length);
 assert(archiveManifest.entries.every((entry) => !entry.path.split('/').includes('..')));

@@ -33,6 +33,8 @@ async function makeFixture(root = fixtureRoot) {
 
 try {
   await makeFixture();
+  const fixtureManifest = JSON.parse(await readFile(path.join(fixtureRoot, 'manifest.json'), 'utf8'));
+  const expectedVersion = fixtureManifest.version;
   const expectedRuntimeFiles = [...sourceFiles, 'assets/icon.svg'].sort();
 
   const firstBuild = await buildExtension(fixtureRoot);
@@ -54,17 +56,19 @@ try {
   assert(!graph.files.includes('README.md'));
 
   const packaged = await packageExtension(fixtureRoot);
-  assert.equal(packaged.filename, 'storybook-to-markdown-v0.3.0.zip');
+  assert.equal(packaged.filename, `storybook-to-markdown-v${expectedVersion}.zip`);
   const archiveBytes = await readFile(packaged.output);
   const zipEntries = readZip(archiveBytes);
   const names = zipEntries.map((entry) => entry.path).sort();
   assert.deepEqual(names, expectedRuntimeFiles, 'ZIP contains exactly dist contents and no dist/ prefix');
   assert(names.includes('manifest.json'), 'manifest.json is at the ZIP root');
+  const zipManifest = JSON.parse(zipEntries.find((entry) => entry.path === 'manifest.json').bytes.toString('utf8'));
+  assert.equal(zipManifest.version, expectedVersion, 'ZIP manifest uses the fixture manifest version');
   assert(!names.some((name) => /(^|\/)(tests|scripts|docs|reports|local-data|dist)(\/|$)/.test(name)));
   assert(!names.some((name) => /(?:storybook-export|checkpoint|private-report)/i.test(name)));
   for (const entry of zipEntries) assert(entry.bytes.equals(await readFile(path.join(fixtureRoot, 'dist', entry.path))));
   const verified = await verifyArtifacts(fixtureRoot);
-  assert.equal(verified.version, '0.3.0');
+  assert.equal(verified.version, expectedVersion);
   assert.equal(verified.entryCount, expectedRuntimeFiles.length);
 
   const packagedAgain = await packageExtension(fixtureRoot);

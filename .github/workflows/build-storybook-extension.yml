@@ -96,6 +96,7 @@ jobs:
             echo "Unsupported versioning mode for event: $EVENT_NAME / $VERSION_MODE" >&2
             exit 1
           fi
+          node tests/smoke.mjs && npm test
           npm run build:raw
           npm run package
 
@@ -116,7 +117,7 @@ jobs:
       - name: Upload extension ZIP artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: storybook-to-markdown-v${{ steps.archive.outputs.version }}-${{ github.sha }}
+          name: storybook-to-markdown-v${{ steps.archive.outputs.version }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: tools/storybook-to-markdown/release/storybook-to-markdown-v${{ steps.archive.outputs.version }}.zip
           if-no-files-found: error
           retention-days: 30

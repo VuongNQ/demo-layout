@@ -15,7 +15,7 @@ const sourcePackageBytes = await readFile(path.join(extensionRoot, 'package.json
 const packageFiles = ['package.json', 'manifest.json', 'background.js', 'extractor.js', 'popup.html', 'popup.css', 'popup.js', 'figma-css.js', 'offscreen.html', 'offscreen.js'];
 const scriptFiles = ['build.mjs', 'package.mjs', 'verify.mjs', 'clean.mjs', 'lib.mjs', 'versioning.mjs', 'bump-version.mjs'];
 
-async function createFixture(name = 'fixture') {
+async function createFixture(name = 'fixture', initialVersion = '0.3.0') {
   const root = path.join(tempRoot, name);
   await mkdir(root, { recursive: true });
   for (const filename of packageFiles) await copyFile(path.join(extensionRoot, filename), path.join(root, filename));
@@ -24,7 +24,11 @@ async function createFixture(name = 'fixture') {
   const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
   manifest.icons = undefined;
   delete manifest.icons;
+  manifest.version = initialVersion;
   await writeFile(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+  packageJson.version = initialVersion;
+  await writeFile(path.join(root, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`);
   return root;
 }
 
@@ -63,6 +67,19 @@ try {
   assert.equal(await versions(fixture), '0.4.0', 'verify does not bump');
   runNpm(fixture, 'run', 'clean');
   assert.equal(await versions(fixture), '0.4.0', 'clean does not bump');
+
+  for (const version of ['0.3.0', '0.3.1', '0.4.0']) {
+    const root = await createFixture(`version-${version}`, version);
+    runNpm(root, 'run', 'build:raw');
+    runNpm(root, 'run', 'package');
+    assert.equal(await versions(root), version, `raw build and package preserve ${version}`);
+    const zipPath = path.join(root, 'release', `storybook-to-markdown-v${version}.zip`);
+    const archiveEntries = readZip(await readFile(zipPath));
+    const archivedManifest = JSON.parse(archiveEntries.find((entry) => entry.path === 'manifest.json').bytes.toString('utf8'));
+    assert.equal(archivedManifest.version, version, `ZIP filename and manifest agree for ${version}`);
+    runNpm(root, 'run', 'verify');
+    assert.equal(await versions(root), version, `verification preserves ${version}`);
+  }
 
   const preserving = await createFixture('format-preservation');
   const manifestText = await readFile(path.join(preserving, 'manifest.json'), 'utf8');
@@ -105,7 +122,10 @@ try {
   assert.match(workflow, /EVENT_NAME" == "workflow_dispatch" && "\$VERSION_MODE" == "minor"/);
   assert.match(workflow, /npm run build:raw[\s\S]*?npm run package[\s\S]*?npm run verify/);
   assert.doesNotMatch(workflow, /npm run build(?:\s|$)/, 'workflow never invokes the auto-bumping build alias');
-  assert.match(workflow, /storybook-to-markdown-v\$\{\{ steps\.archive\.outputs\.version \}\}-\$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /storybook-to-markdown-v\$\{\{ steps\.archive\.outputs\.version \}\}-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
+  const bumpOffset = workflow.indexOf('node scripts/bump-version.mjs minor');
+  const postBumpTestsOffset = workflow.indexOf('node tests/smoke.mjs && npm test', bumpOffset);
+  assert(bumpOffset >= 0 && postBumpTestsOffset > bumpOffset, 'packaging job reruns smoke and npm tests after the transient bump');
   assert.match(workflow, /retention-days: 30/);
   assert.match(workflow, /contents: read/);
   assert.doesNotMatch(workflow, /contents:\s*write|gh release|git tag|git push/);
