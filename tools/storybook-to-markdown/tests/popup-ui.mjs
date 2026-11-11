@@ -8,6 +8,11 @@ const removedWindowIds = [];
 let currentExtensionWindow = { id: 345 };
 let failCurrentExport = false;
 let removeFailure = null;
+let offlineAction = null;
+let offlineReads = 0;
+let offlineControlAction = null;
+const offlineJobListeners = [];
+let savedOfflineJob = { state: 'paused', phaseCode: 'PAUSED', phase: 'Paused after request', scope: 'all', sourceUrl: 'https://storybook.example/storybook/', pages: { selected: 3, scanned: 2, staticReady: 1, partial: 1, failed: 0 }, assets: { discovered: 5, downloaded: 4, failed: 1, skipped: 0, deduplicated: 2, downloadedBytes: 2048 }, percent: 45 };
 const elements = new Map();
 
 class ElementMock {
@@ -53,13 +58,18 @@ const chrome = {
     lastError: undefined,
     sendMessage(message, callback) {
       if (message.action === 'GET_JOB') callback({ ok: true, job: { state: 'idle' } });
+      else if (message.action === 'GET_OFFLINE_JOB') { offlineReads++; callback({ ok: true, job: savedOfflineJob }); }
+      else if (message.action === 'GET_SOURCE_TAB') callback({ ok: true, tabUrl: 'https://storybook.example/storybook/?path=/docs/button--docs' });
+      else if (message.action === 'EXPORT_OFFLINE') { offlineAction = message; callback({ ok: true, filename: 'storybook-offline-current.zip', job: { state: 'completed', scope: message.scope, sourceUrl: 'https://storybook.example/storybook/', filename: 'storybook-offline-current.zip', pages: { selected: 1, scanned: 1 }, assets: {} } }); }
+      else if (message.action === 'OFFLINE_CONTROL') { offlineControlAction = message; callback({ ok: true, job: { state: 'completed', scope: 'all', pages: { selected: 2, scanned: 2 }, assets: { failed: 1 } } }); }
       else if (message.action === 'EXPORT_CURRENT') callback(failCurrentExport ? { ok: false, error: 'Current Docs mock failure' } : { ok: true, filename: 'current.md', preview: '# Storybook result' });
       else if (message.action === 'EXPORT_FIGMA_CSS') callback({ ok: true, filename: 'figma-css-demo.zip' });
       else callback({ ok: true, job: { state: 'idle' } });
     },
-    onMessage: { addListener() {} },
+    onMessage: { addListener(listener) { offlineJobListeners.push(listener); } },
   },
   storage: { onChanged: { addListener() {} } },
+  permissions: { request: async ({ origins }) => origins[0] === 'https://storybook.example/*' },
   windows: {
     getCurrent: async () => currentExtensionWindow,
     remove: async (id) => { removedWindowIds.push(id); if (removeFailure) throw removeFailure; },
@@ -71,9 +81,16 @@ source = source.replace("import { buildFigmaCssArchive, parseFigmaCss } from './
   const buildFigmaCssArchive = () => ({ files: [], filename: 'figma-css-demo.zip' });
   const parseFigmaCss = (css) => { if (css === 'bad') throw new Error('Figma mock parse failure'); return { layers: [{ name: css.split('\\n')[0], declarations: [{ property: 'width', value: '320px' }], warnings: [], annotations: [] }], warnings: [] }; };
 `);
-const context = vm.createContext({ chrome, document, console, setInterval: () => 1, clearInterval() {} });
+const context = vm.createContext({ chrome, document, console, URL, setInterval: () => 1, clearInterval() {} });
 vm.runInContext(source, context, { filename: 'popup.js' });
 await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(offlineReads, 1, 'popup startup restores the persisted Offline Static job');
+assert.equal(elements.get('offline-job-panel').hidden, false, 'a reopened Storybook tab displays saved Offline Static progress');
+assert.equal(elements.get('offline-state-pill').textContent, 'paused');
+assert.equal(elements.get('offline-resume').hidden, false, 'a reopened paused job exposes Resume');
+assert.match(elements.get('offline-counts').textContent, /1 static-ready · 1 partial/);
+offlineJobListeners.forEach((listener) => listener({ action: 'OFFLINE_JOB_UPDATED', job: { state: 'idle' } }));
+assert.equal(elements.get('offline-job-panel').hidden, true, 'idle Offline Static state remains isolated from other export modes');
 
 elements.get('mode-figma').dispatch('click');
 assert.equal(elements.get('figma-css-panel').hidden, false);
@@ -117,6 +134,27 @@ elements.get('mode-figma').dispatch('click');
 elements.get('mode-figma').dispatch('keydown', { key: 'ArrowRight' });
 assert.equal(elements.get('mode-storybook').getAttribute('aria-selected'), 'true', 'arrow key updates active tab selection');
 assert.equal(elements.get('mode-storybook').focused, true, 'keyboard tab movement transfers focus');
+
+elements.get('format-offline').checked = true;
+elements.get('format-offline').dispatch('change');
+assert.equal(elements.get('markdown-options').hidden, true, 'Offline Static keeps Markdown controls out of the static export form');
+assert.equal(elements.get('offline-authorization').hidden, false, 'Offline Static requires a visible authorization attestation');
+elements.get('start').dispatch('click');
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.match(elements.get('storybook-message').textContent, /Confirm that organizational policy permits/);
+elements.get('offline-authorized').checked = true;
+await elements.get('start').dispatch('click');
+assert.deepEqual(offlineAction && [offlineAction.scope, offlineAction.authorizationConfirmed], ['current', true], `confirmed Current Docs starts the separate Offline Static action: ${elements.get('storybook-message').textContent}`);
+assert.match(elements.get('storybook-message').textContent, /Downloaded storybook-offline-current.zip/);
+offlineJobListeners.forEach((listener) => listener({ action: 'OFFLINE_JOB_UPDATED', job: { state: 'completed', scope: 'all', pages: { selected: 2, scanned: 2, partial: 1 }, assets: { failed: 1 } } }));
+assert.equal(elements.get('offline-retry').hidden, false, 'completed partial exports expose a retry control');
+elements.get('offline-authorized').checked = false;
+await elements.get('offline-retry').dispatch('click');
+assert.match(elements.get('storybook-message').textContent, /Confirm that organizational policy permits/);
+assert.equal(offlineControlAction, null, 'retry does not reach the background worker before confirmation');
+elements.get('offline-authorized').checked = true;
+await elements.get('offline-retry').dispatch('click');
+assert.equal(offlineControlAction?.authorizationConfirmed, true, 'retry requires a new explicit confirmation');
 
 elements.get('figma-clear').dispatch('click');
 assert.equal(elements.get('figma-css-input').value, '');

@@ -12,7 +12,7 @@ const repositoryRoot = path.resolve(extensionRoot, '../..');
 const tempRoot = await mkdtemp(path.join(tmpdir(), 'storybook-extension-version-test-'));
 const sourceManifestBytes = await readFile(path.join(extensionRoot, 'manifest.json'));
 const sourcePackageBytes = await readFile(path.join(extensionRoot, 'package.json'));
-const packageFiles = ['package.json', 'manifest.json', 'background.js', 'extractor.js', 'popup.html', 'popup.css', 'popup.js', 'figma-css.js', 'offscreen.html', 'offscreen.js'];
+const packageFiles = ['package.json', 'manifest.json', 'background.js', 'extractor.js', 'offline-static.js', 'popup.html', 'popup.css', 'popup.js', 'figma-css.js', 'offscreen.html', 'offscreen.js'];
 const scriptFiles = ['build.mjs', 'package.mjs', 'verify.mjs', 'clean.mjs', 'lib.mjs', 'versioning.mjs', 'bump-version.mjs'];
 
 async function createFixture(name = 'fixture', initialVersion = '0.3.0') {
@@ -33,7 +33,9 @@ async function createFixture(name = 'fixture', initialVersion = '0.3.0') {
 }
 
 function runNpm(root, ...args) {
-  const result = spawnSync('npm', args, { cwd: root, encoding: 'utf8' });
+  const result = process.env.npm_execpath
+    ? spawnSync(process.execPath, [process.env.npm_execpath, ...args], { cwd: root, encoding: 'utf8' })
+    : spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' });
   if (result.error || result.status !== 0) throw new Error(`npm ${args.join(' ')} failed: ${result.error?.message || result.stderr || result.stdout}`);
   return result.stdout;
 }
@@ -112,7 +114,7 @@ try {
   }
   await assert.rejects(bumpVersionFiles(fixture, 'major'), /Unsupported versioning mode/);
 
-  const workflow = await readFile(path.join(repositoryRoot, '.github/workflows/build-storybook-extension.yml'), 'utf8');
+  const workflow = (await readFile(path.join(repositoryRoot, '.github/workflows/build-storybook-extension.yml'), 'utf8')).replace(/\r\n/g, '\n');
   const packageJson = JSON.parse(await readFile(path.join(extensionRoot, 'package.json'), 'utf8'));
   assert.match(packageJson.scripts.package, /build:raw/);
   assert.doesNotMatch(packageJson.scripts.package, /npm run build(?:\s|$)/, 'package never invokes the auto-bumping build alias');

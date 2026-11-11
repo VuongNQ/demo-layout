@@ -11,6 +11,61 @@ let elapsedTimer = null;
 let lastAnnouncement = '';
 let activeImportMode = 'storybook';
 let parsedFigmaCss = null;
+let currentOfflineJob = null;
+
+function selectedFormat() { return byId('format-offline')?.checked ? 'offline' : 'markdown'; }
+function updateFormatUi() {
+  const offline = selectedFormat() === 'offline';
+  byId('markdown-options').hidden = offline;
+  byId('offline-authorization').hidden = !offline;
+  byId('current-preview').hidden = true;
+  startButton.textContent = offline ? 'Generate Offline Static ZIP' : 'Extract & download';
+}
+byId('format-markdown').addEventListener('change', updateFormatUi);
+byId('format-offline').addEventListener('change', updateFormatUi);
+
+function renderOffline(job) {
+  currentOfflineJob = job;
+  const hasJob = job?.state && job.state !== 'idle';
+  const active = hasJob && !['completed', 'failed', 'cancelled'].includes(job.state);
+  byId('offline-job-panel').hidden = !hasJob || activeImportMode !== 'storybook';
+  byId('new-export').hidden = activeImportMode === 'figma' || active || Boolean(currentJob && !['idle', 'completed', 'cancelled', 'failed'].includes(currentJob.state));
+  if (!hasJob) return;
+  byId('offline-state-pill').textContent = job.state;
+  byId('offline-state-pill').className = `state-pill ${job.state}`;
+  byId('offline-live-status').textContent = `${job.phaseCode ? `${job.phaseCode} · ` : ''}${job.phase || job.state}${job.lastError ? ` · ${job.lastError}` : ''}`;
+  byId('offline-progress').value = Number(job.percent) || 0;
+  byId('offline-source').textContent = `Source: ${job.sourceUrl || ''} · Scope: ${job.scope || ''}`;
+  const p = job.pages || {}, a = job.assets || {};
+  byId('offline-counts').textContent = `Pages ${p.scanned || 0}/${p.selected || 0} scanned · ${p.staticReady || 0} static-ready · ${p.partial || 0} partial · ${p.failed || 0} failed. Assets ${a.downloaded || 0}/${a.discovered || 0} downloaded · ${a.failed || 0} failed · ${a.skipped || 0} skipped · ${a.deduplicated || 0} deduplicated · ${a.downloadedBytes || 0} bytes.`;
+  byId('offline-current').textContent = [job.currentPage && `Page: ${job.currentPage}`, job.currentAsset && `Asset: ${job.currentAsset}`, job.filename && `Downloaded: ${job.filename}`, ...(job.warnings || [])].filter(Boolean).join(' · ');
+  byId('offline-pause').hidden = !['discovering', 'scanning', 'discovering-assets', 'downloading-assets'].includes(job.state);
+  byId('offline-resume').hidden = job.state !== 'paused';
+  byId('offline-cancel').hidden = !active;
+  const retryableFailures = (job.assets?.failed || 0) > 0 || (job.pages?.failed || 0) > 0 || (job.pages?.partial || 0) > 0;
+  byId('offline-retry').hidden = !['failed', 'cancelled'].includes(job.state) && !(job.state === 'completed' && retryableFailures);
+  byId('offline-retry').textContent = job.state === 'completed' ? 'Retry incomplete pages and assets' : 'Retry failed export';
+}
+
+async function offlineControl(control) {
+  try {
+    if (control === 'RETRY') {
+      if (selectedFormat() !== 'offline') { byId('format-offline').checked = true; updateFormatUi(); }
+      if (!byId('offline-authorized').checked) throw new Error('Confirm that organizational policy permits this export and its intended storage or transfer before retrying.');
+      const source = await send({ action: 'GET_SOURCE_TAB' });
+      const origin = new URL(source.tabUrl).origin;
+      if (!await chrome.permissions.request({ origins: [`${origin}/*`] })) throw new Error('Permission for the selected Storybook origin is required to fetch its static assets.');
+    }
+    const response = await send({ action: 'OFFLINE_CONTROL', control, authorizationConfirmed: control === 'RETRY' });
+    if (control === 'RETRY') byId('offline-authorized').checked = false;
+    renderOffline(response.job);
+  }
+  catch (error) { storybookMessage.textContent = error.message; }
+}
+byId('offline-pause').addEventListener('click', () => offlineControl('PAUSE'));
+byId('offline-resume').addEventListener('click', () => offlineControl('RESUME'));
+byId('offline-cancel').addEventListener('click', () => offlineControl('CANCEL'));
+byId('offline-retry').addEventListener('click', () => offlineControl('RETRY'));
 
 function send(message) {
   return new Promise((resolve, reject) => {
@@ -96,6 +151,7 @@ function setImportMode(mode) {
   figmaTab.tabIndex = activeImportMode === 'figma' ? 0 : -1;
   byId('storybook-panel').hidden = activeImportMode !== 'storybook';
   figmaPanel.hidden = activeImportMode !== 'figma';
+  byId('offline-job-panel').hidden = activeImportMode !== 'storybook' || !currentOfflineJob || currentOfflineJob.state === 'idle';
   newExport.hidden = activeImportMode === 'figma' || Boolean(currentJob?.state && !['idle', 'completed', 'cancelled', 'failed'].includes(currentJob.state));
 }
 
@@ -213,7 +269,8 @@ function render(job) {
   const hasJob = job.state && job.state !== 'idle';
   jobPanel.hidden = !hasJob;
   byId('idle-status').hidden = hasJob;
-  newExport.hidden = activeImportMode === 'figma' || (hasJob && !terminal);
+  const offlineActive = currentOfflineJob && !['completed', 'failed', 'cancelled', 'idle'].includes(currentOfflineJob.state);
+  newExport.hidden = activeImportMode === 'figma' || (hasJob && !terminal) || Boolean(offlineActive);
   byId('new-after-terminal').hidden = !terminal;
 
   if (!hasJob) return;
@@ -260,10 +317,24 @@ async function pollJob() {
 startButton.addEventListener('click', async () => {
   startButton.disabled = true;
   storybookMessage.textContent = '';
-  byId('current-preview').hidden = true;
-  byId('preview').textContent = '';
   try {
     const scope = document.querySelector('input[name="scope"]:checked').value;
+    if (selectedFormat() === 'offline') {
+      if (!byId('offline-authorized').checked) throw new Error('Confirm that organizational policy permits this export and its intended storage or transfer.');
+      const source = await send({ action: 'GET_SOURCE_TAB' });
+      const origin = new URL(source.tabUrl).origin;
+      const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
+      if (!granted) throw new Error('Permission for the selected Storybook origin is required to fetch its static assets.');
+      byId('offline-job-panel').hidden = false;
+      storybookMessage.textContent = 'Capturing local documentation and static assets…';
+      byId('offline-authorized').checked = false;
+      const response = await send({ action: 'EXPORT_OFFLINE', scope, authorizationConfirmed: true });
+      renderOffline(response.job);
+      storybookMessage.textContent = `Downloaded ${response.filename}. Review OFFLINE_REPORT.md for missing dependencies and limitations.`;
+      return;
+    }
+    byId('current-preview').hidden = true;
+    byId('preview').textContent = '';
     const options = { props: byId('props').checked, tokens: byId('tokens').checked, examples: byId('examples').checked };
     if (scope === 'all') {
       const source = await send({ action: 'GET_SOURCE_TAB' });
@@ -313,12 +384,15 @@ byId('new-after-terminal').addEventListener('click', () => {
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.action === 'JOB_UPDATED' && message.job) render(message.job);
+  if (message?.action === 'OFFLINE_JOB_UPDATED' && message.job) renderOffline(message.job);
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.storybookExportJob) pollJob();
 });
 
 pollJob();
+send({ action: 'GET_OFFLINE_JOB' }).then((response) => renderOffline(response.job)).catch(() => {});
+updateFormatUi();
 elapsedTimer = setInterval(() => {
   if (currentJob && !jobPanel.hidden) byId('elapsed').textContent = elapsedText(currentJob);
 }, 1000);

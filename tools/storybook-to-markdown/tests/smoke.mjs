@@ -1,17 +1,20 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
+import { webcrypto } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
 import { buildFigmaCssArchive, parseFigmaCss } from '../figma-css.js';
+import { readZip } from '../scripts/lib.mjs';
 import { parseVersion } from '../scripts/versioning.mjs';
 
 const directory = new URL('../', import.meta.url);
 const read = (name) => readFile(new URL(name, directory), 'utf8');
 const manifest = JSON.parse(await read('manifest.json'));
 const packageJson = JSON.parse(await read('package.json'));
+const offlineModuleSource = await read('offline-static.js');
 assert.equal(manifest.manifest_version, 3);
 assert.doesNotThrow(() => parseVersion(manifest.version, 'manifest.json version'));
 assert.equal(packageJson.version, manifest.version, 'package.json version matches the authoritative manifest version');
@@ -43,7 +46,7 @@ assert(!popupJs.includes('WINDOW_ID_CURRENT'), 'Close does not pass the -2 senti
 assert(!/close-window[\s\S]{0,500}chrome\.tabs\.remove/.test(popupJs), 'Close does not remove browser tabs');
 assert.match((await read('background.js')), /chrome\.windows\.create\([\s\S]{0,150}type: 'popup'/);
 
-async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFrames = null } = {}) {
+async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFrames = null, realZip = false, offlineFixture = null } = {}) {
   const messages = new Set();
   const tabListeners = new Set();
   const downloadListeners = new Set();
@@ -57,6 +60,10 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
   const downloadItems = new Map();
   const downloadRequests = [];
   const filesByZip = [];
+  const zipArchives = [];
+  const offscreenListeners = [];
+  const objectUrls = new Map();
+  let objectUrlSequence = 0;
   const navigationUrls = [];
   const navigationCompletionOrder = [];
   const failedIds = new Set();
@@ -69,6 +76,39 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
   let mainContext;
   const probeCounts = new Map();
   const extractionFrames = [];
+  const offlineAssetCalls = new Map();
+  const offlineRequestedUrls = [];
+  let offlineAssetActive = 0;
+  let offlineAssetPeak = 0;
+  const indexedDbRecords = new Map();
+  const indexedDB = {
+    open: () => {
+      const request = {};
+      queueMicrotask(() => {
+        request.result = {
+          createObjectStore: () => {}, close: () => {},
+          transaction: (_storeName, _mode) => {
+            const tx = { objectStore: () => ({
+              put: (record) => { indexedDbRecords.set(record.key, record); const result = { result: record }; setTimeout(() => tx.oncomplete?.(), 0); return result; },
+              get: (key) => { const result = {}; setTimeout(() => { result.result = indexedDbRecords.get(key); result.onsuccess?.(); }, 0); return result; },
+              openCursor: () => { const cursorRequest = {}; setTimeout(() => { const records = [...indexedDbRecords.entries()]; let cursorIndex = 0; const advance = () => { const pair = records[cursorIndex]; cursorRequest.result = pair ? { value: pair[1], delete: () => indexedDbRecords.delete(pair[0]), continue: () => { cursorIndex++; setTimeout(advance, 0); } } : null; cursorRequest.onsuccess?.(); if (!pair) tx.oncomplete?.(); }; advance(); }, 0); return cursorRequest; },
+            }) };
+            return tx;
+          },
+        };
+        request.onupgradeneeded?.(); request.onsuccess?.();
+      });
+      return request;
+    },
+  };
+  if (realZip) {
+    const offscreenContext = vm.createContext({
+      chrome: { runtime: { onMessage: { addListener: (listener) => offscreenListeners.push(listener) } } },
+      URL: { createObjectURL: (blob) => { const url = `blob:offline-test-${++objectUrlSequence}`; objectUrls.set(url, blob); return url; }, revokeObjectURL: (url) => objectUrls.delete(url) },
+      TextEncoder, Uint8Array, Uint32Array, DataView, Blob, ArrayBuffer, Set,
+    });
+    vm.runInContext(await read('offscreen.js'), offscreenContext, { filename: 'offline-test-offscreen.js' });
+  }
 
   const event = (listeners) => ({ addListener: (fn) => listeners.add(fn), removeListener: (fn) => listeners.delete(fn), emit: (...args) => [...listeners].forEach((fn) => fn(...args)) });
   const docsRoot = () => {
@@ -112,8 +152,13 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
       sendMessage: async (message) => {
         if (message.action === 'MAKE_ZIP') {
           filesByZip.push(message.files);
-          return { ok: true, url: `blob:mock-${filesByZip.length}` };
+          if (!realZip) return { ok: true, url: `blob:mock-${filesByZip.length}` };
+          let response;
+          offscreenListeners[0](message, {}, (value) => { response = value; });
+          if (response?.ok) zipArchives.push({ files: message.files, blob: objectUrls.get(response.url) });
+          return response;
         }
+        if (message.action === 'REVOKE_URL' && realZip) { let response; offscreenListeners[0](message, {}, (value) => { response = value; }); return response; }
         return { ok: true };
       },
       getContexts: async () => [],
@@ -132,7 +177,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     tabs: {
       onUpdated: event(tabListeners),
       create: async () => { const id = tabSequence++; tabs.set(id, { id, url: 'about:blank', status: 'complete' }); return tabs.get(id); },
-      get: async (id) => id === 1 ? sourceTab : tabs.get(id),
+      get: async (id) => { if (id === 1) return sourceTab; const tab = tabs.get(id); if (!tab) throw new Error('No such tab'); return tab; },
       update: async (id, update) => {
         const tab = tabs.get(id);
         tab.url = update.url;
@@ -163,6 +208,14 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     scripting: {
       executeScript: async ({ target, func, args = [] }) => {
         if (args.length === 1 && typeof args[0] === 'string' && args[0].startsWith('http')) return [{ frameId: 0, result: await func(args[0]) }];
+        if (func.name === 'captureOfflinePage') {
+          const id = args[0];
+          const tab = target.tabId === 1 ? sourceTab : tabs.get(target.tabId);
+          const frameUrl = tab?.url || mainContext.location.href;
+          mainContext.location = new URL(frameUrl);
+          const html = offlineFixture?.html ? offlineFixture.html(id) : `<!doctype html><html><head><meta charset="utf-8"></head><body><main class="sbdocs-wrapper"><h1>${id}</h1><p>Rendered fixture Docs content for ${id}.</p></main></body></html>`;
+          return [{ frameId: target.frameIds?.[0] ?? 0, result: { id, title: id, url: frameUrl, html, frameUrl, frameTitle: 'Storybook Docs', rootSelector: '.sbdocs-wrapper', performanceResources: [] } }];
+        }
         const tab = tabs.get(target.tabId);
         if (tab?.url && tab.url !== 'about:blank') mainContext.location = new URL(tab.url);
         if (typeof args[0] === 'string') {
@@ -231,7 +284,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     },
   };
   const context = vm.createContext({
-    chrome, URL, URLSearchParams, TextEncoder, Uint8Array, Uint32Array, DataView, Blob, structuredClone,
+    chrome, URL, URLSearchParams, TextEncoder, TextDecoder, Uint8Array, Uint32Array, DataView, Blob, structuredClone, AbortController,
     setTimeout, clearTimeout, console, document,
     getComputedStyle: (element) => ({
       length: element === document.documentElement ? 1 : 0,
@@ -240,8 +293,26 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
       colorScheme: 'light',
       color: '#222222', backgroundColor: 'rgb(255, 255, 255)', fontFamily: 'Arial', fontSize: '16px', borderRadius: '0px',
     }),
-    fetch: async () => ({ ok: true, json: async () => ({ entries: Object.fromEntries(entries.map((entry) => [entry.id, entry])) }) }),
-    importScripts: () => {},
+    indexedDB, crypto: webcrypto,
+    fetch: async (input, options = {}) => {
+      const url = new URL(typeof input === 'string' ? input : input.url || input.href);
+      if (!/(?:^|\/)(?:index|stories)\.json$/.test(url.pathname)) offlineRequestedUrls.push(url.href);
+      const resource = offlineFixture?.assets?.get(url.pathname);
+      if (resource) {
+        offlineAssetCalls.set(url.pathname, (offlineAssetCalls.get(url.pathname) || 0) + 1);
+        offlineAssetActive++; offlineAssetPeak = Math.max(offlineAssetPeak, offlineAssetActive);
+        try {
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(resolve, resource.delay || 12);
+            const abort = () => { clearTimeout(timer); reject(options.signal.reason || new Error('Request aborted.')); };
+            if (options.signal?.aborted) abort(); else options.signal?.addEventListener('abort', abort, { once: true });
+          });
+        } finally { offlineAssetActive--; }
+        return new Response(resource.body instanceof Uint8Array ? resource.body : new TextEncoder().encode(resource.body), { status: resource.status || 200, headers: { 'Content-Type': resource.mime } });
+      }
+      return { ok: true, json: async () => ({ entries: Object.fromEntries(entries.map((entry) => [entry.id, entry])) }) };
+    },
+    importScripts: (...files) => { if (files.includes('offline-static.js')) vm.runInContext(offlineModuleSource, mainContext, { filename: 'offline-static.js' }); },
   });
   mainContext = context;
   context.location = new URL('https://storybook.test/?path=/docs/current');
@@ -262,7 +333,16 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     }
     throw new Error(`Timed out waiting for export state. Last state: ${state.storybookExportJob?.state}`);
   }
-  return { send, waitFor, state, tabs, extensionWindows, windowFocusCalls, actionClicks, clickAction: (tab) => [...actionClicks][0](tab), closeWindow: (id) => chrome.windows.remove(id), setSourceTab: (tab) => { sourceTab = tab; }, getSourceTab: () => sourceTab, filesByZip, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, get peakNavigations() { return peakNavigations; } };
+  async function waitOfflineFor(predicate, timeout = 5000) {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      const response = await send({ action: 'GET_OFFLINE_JOB' });
+      if (predicate(response.job)) return response.job;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error(`Timed out waiting for Offline Static state. Last state: ${state.storybookOfflineExportJob?.state}`);
+  }
+  return { send, waitFor, waitOfflineFor, state, tabs, extensionWindows, windowFocusCalls, actionClicks, clickAction: (tab) => [...actionClicks][0](tab), closeWindow: (id) => chrome.windows.remove(id), setSourceTab: (tab) => { sourceTab = tab; }, getSourceTab: () => sourceTab, filesByZip, zipArchives, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, offlineAssetCalls, offlineRequestedUrls, get indexedDbRecordCount() { return indexedDbRecords.size; }, get offlineAssetPeak() { return offlineAssetPeak; }, get peakNavigations() { return peakNavigations; } };
 }
 
 function defaultEntries() {
@@ -608,6 +688,154 @@ await threeHarness.send({ action: 'START_ALL', tabId: 1, tabUrl: sourceUrl, opti
 await threeHarness.waitFor((job) => job.state === 'completed');
 assert.equal(threeHarness.peakNavigations, 3);
 
+// Exercise the user-facing Offline Static coordinator from authorization message to real ZIP Blob handoff.
+const offlineNoConsentHarness = await makeHarness({ delay: 3, realZip: true });
+const offlineNoConsentResponse = await offlineNoConsentHarness.send({ action: 'EXPORT_OFFLINE', scope: 'current', authorizationConfirmed: false });
+assert.equal(offlineNoConsentResponse.ok, false, 'the background coordinator rejects Offline Static without explicit authorization confirmation');
+assert.match(offlineNoConsentResponse.error, /explicitly confirm/);
+assert.equal(offlineNoConsentHarness.zipArchives.length, 0);
+
+const offlineCurrentHarness = await makeHarness({ delay: 3, realZip: true });
+const offlineCurrentResponse = await offlineCurrentHarness.send({ action: 'EXPORT_OFFLINE', scope: 'current', authorizationConfirmed: true });
+assert.equal(offlineCurrentResponse.ok, true, 'Current Docs coordinator returns a generated offline ZIP');
+assert.equal(offlineCurrentResponse.job.phaseCode, 'COMPLETED');
+const offlineCurrentMembers = readZip(Buffer.from(await offlineCurrentHarness.zipArchives[0].blob.arrayBuffer()));
+assert(offlineCurrentMembers.some((entry) => entry.path === 'index.html'));
+assert(offlineCurrentMembers.some((entry) => entry.path === 'pages/guide--docs.html'), `Current Docs archive members: ${offlineCurrentMembers.map((entry) => entry.path).join(', ')}; page results: ${JSON.stringify(offlineCurrentResponse.pages)}`);
+assert.equal(offlineCurrentMembers.filter((entry) => /^pages\/.+\.html$/.test(entry.path)).length, 1, 'Current Docs ZIP contains exactly its selected page');
+assert(offlineCurrentHarness.tabs.size === 0, 'Current Docs export never closes or leaves a crawler tab');
+
+const offlineMissingRootHarness = await makeHarness({ delay: 3, realZip: true, readinessFrames: [{ frameId: 0, root: false, id: '$expected' }] });
+const offlineMissingRootResponse = await offlineMissingRootHarness.send({ action: 'EXPORT_OFFLINE', scope: 'current', authorizationConfirmed: true });
+assert.equal(offlineMissingRootResponse.ok, true, 'a failed page remains reportable in a generated Current Docs archive');
+assert.equal(offlineMissingRootResponse.job.pages.failed, 1);
+assert.equal(offlineMissingRootResponse.pages[0].status, 'FAILED', 'a missing Docs root is not marked STATIC_READY');
+const offlineFailedMembers = readZip(Buffer.from(await offlineMissingRootHarness.zipArchives[0].blob.arrayBuffer()));
+assert(!offlineFailedMembers.some((member) => /^pages\/.+\.html$/.test(member.path)));
+assert(offlineFailedMembers.some((member) => member.path === 'index.html' && new TextDecoder().decode(member.bytes).includes('failed')));
+assert(offlineFailedMembers.some((member) => member.path === 'OFFLINE_REPORT.md'));
+
+const offlineAllHarness = await makeHarness({ delay: 3, realZip: true });
+const offlineAllResponse = await offlineAllHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
+assert.equal(offlineAllResponse.ok, true, `All Docs coordinator returns a generated offline ZIP: ${offlineAllResponse.error || ''}`);
+const offlineAllMembers = readZip(Buffer.from(await offlineAllHarness.zipArchives[0].blob.arrayBuffer()));
+const offlineAllPaths = new Set(offlineAllMembers.map((entry) => entry.path));
+assert.equal(offlineAllResponse.job.pages.selected, defaultEntries().length);
+assert.equal(offlineAllResponse.job.pages.staticReady, defaultEntries().length);
+assert(offlineAllPaths.has('index.html'));
+assert(offlineAllPaths.has('pages/guide--docs.html'));
+assert(offlineAllPaths.has('ASSET_MANIFEST.json'));
+assert(offlineAllPaths.has('OFFLINE_REPORT.md'));
+assert.equal([...offlineAllPaths].filter((name) => /^pages\/.+\.html$/.test(name)).length, defaultEntries().length);
+assert.equal(offlineAllHarness.tabs.size, 0, 'All Docs coordinator removes only its owned crawler tab');
+
+const offlineFixture = {
+  html: (id) => `<!doctype html><html><head><link rel="stylesheet" href="/offline.css"><script src="/bundle.js"></script></head><body><main class="sbdocs-wrapper"><h1>${id}</h1><img src="/shared.png"><img src="/icon.svg#mark"><img src="/missing.png"><img src="/secret.png?token=fixture-secret"><img src="https://external.test/private.png"><a href="/?path=/docs/guide--docs">Guide</a></main></body></html>`,
+  assets: new Map([
+    ['/offline.css', { body: '@import "./nested.css"; @font-face{font-family:Fixture;src:url("./fixture.woff2")} .hero{background:url("./shared.png")}', mime: 'text/css' }],
+    ['/nested.css', { body: '.nested{color:#123}', mime: 'text/css' }],
+    ['/fixture.woff2', { body: new Uint8Array([0, 255, 10, 128]), mime: 'font/woff2' }],
+    ['/shared.png', { body: new Uint8Array([137, 80, 78, 71, 0, 255, 1]), mime: 'image/png' }],
+    ['/icon.svg', { body: '<svg xmlns="http://www.w3.org/2000/svg"><path id="mark" d="M0 0"/></svg>', mime: 'image/svg+xml' }],
+    ['/bundle.js', { body: 'import "./chunk.js"; import(dynamicPath);', mime: 'text/javascript' }],
+    ['/chunk.js', { body: 'export const fixture=1;', mime: 'text/javascript' }],
+    ['/missing.png', { body: 'not found', mime: 'text/plain', status: 404 }],
+  ]),
+};
+const offlineIntegratedHarness = await makeHarness({ delay: 3, realZip: true, offlineFixture });
+const offlineIntegratedResponse = await offlineIntegratedHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
+assert.equal(offlineIntegratedResponse.ok, true, 'integrated All Docs asset export generates a ZIP');
+assert.equal(offlineIntegratedHarness.offlineAssetCalls.get('/offline.css'), 1, `shared page stylesheet fetched once through the actual background coordinator; calls=${JSON.stringify([...offlineIntegratedHarness.offlineAssetCalls])}; job=${JSON.stringify(offlineIntegratedResponse.job)}`);
+assert.equal(offlineIntegratedHarness.offlineAssetCalls.get('/shared.png'), 1, 'shared page image fetched once through the actual background coordinator');
+assert.equal(offlineIntegratedHarness.offlineAssetCalls.get('/nested.css'), 1, 'recursive CSS import fetched once through the coordinator');
+assert.equal(offlineIntegratedHarness.offlineAssetCalls.get('/fixture.woff2'), 1, 'font dependency fetched once through the coordinator');
+assert.equal(offlineIntegratedHarness.offlineAssetCalls.get('/bundle.js'), 1, 'shared JavaScript bundle fetched once through the coordinator');
+assert.equal(offlineIntegratedHarness.offlineAssetCalls.get('/chunk.js'), 1, 'static JavaScript module dependency fetched once through the coordinator');
+assert.equal(offlineIntegratedHarness.offlineAssetCalls.get('/missing.png'), 1, 'a permanent missing resource does not retry automatically');
+assert.equal(offlineIntegratedHarness.offlineAssetCalls.has('/secret.png'), false, 'secret-bearing asset URLs are rejected before network access');
+assert(!offlineIntegratedHarness.offlineRequestedUrls.some((url) => url.startsWith('https://external.test/')), 'unauthorized external origins are never requested');
+assert(offlineIntegratedHarness.offlineAssetPeak <= 3 && offlineIntegratedHarness.offlineAssetPeak === 3, 'integrated coordinator caps concurrent asset requests at three');
+assert.equal(offlineIntegratedResponse.job.assets.failed, 1);
+assert.equal(offlineIntegratedResponse.job.pages.partial, defaultEntries().length);
+const offlineIntegratedMembers = readZip(Buffer.from(await offlineIntegratedHarness.zipArchives[0].blob.arrayBuffer()));
+const offlineIntegratedPaths = new Set(offlineIntegratedMembers.map((member) => member.path));
+assert([...offlineIntegratedPaths].some((path) => path.startsWith('assets/css/')));
+assert([...offlineIntegratedPaths].some((path) => path.startsWith('assets/fonts/')));
+assert([...offlineIntegratedPaths].some((path) => path.startsWith('assets/images/')));
+assert([...offlineIntegratedPaths].some((path) => path.startsWith('assets/svg/')));
+assert([...offlineIntegratedPaths].some((path) => path.startsWith('assets/js/')));
+assert.equal(offlineIntegratedMembers.filter((member) => /^pages\/.+\.html$/.test(member.path)).length, defaultEntries().length);
+assert(offlineIntegratedMembers.some((member) => member.path === 'OFFLINE_REPORT.md' && /dynamic/i.test(new TextDecoder().decode(member.bytes))), 'offline report records unsupported dynamic JavaScript behavior');
+assert(offlineIntegratedMembers.some((member) => member.path === 'OFFLINE_REPORT.md' && /missing\.png/i.test(new TextDecoder().decode(member.bytes))), 'offline report records missing resources');
+const offlineManifestBytes = offlineIntegratedMembers.find((member) => member.path === 'ASSET_MANIFEST.json').bytes;
+const offlineAssetManifestText = new TextDecoder().decode(offlineManifestBytes);
+assert(!offlineAssetManifestText.includes('fixture-secret'), 'offline asset manifest excludes a secret-bearing source URL');
+const offlineManifest = JSON.parse(new TextDecoder().decode(offlineIntegratedMembers.find((member) => member.path === 'manifest.json').bytes));
+assert.equal(offlineManifest.sourceOrigin, 'https://storybook.test');
+assert(offlineManifest.pages.every((page) => page.frame?.frameId === 0 && page.sourceUrl && !page.sourceUrl.includes('fixture-secret')), 'offline manifest preserves verified frame and sanitized page source metadata');
+assert.equal(offlineManifest.pages.filter((page) => page.status === 'PARTIAL').length, defaultEntries().length);
+assert(offlineAssetManifestText.includes('"referringPageIds"') && offlineAssetManifestText.includes('"discoveryEvidence"'));
+const offlineIndex = new TextDecoder().decode(offlineIntegratedMembers.find((member) => member.path === 'index.html').bytes);
+assert(offlineIndex.includes('PARTIAL') || offlineIndex.includes('Partial'), 'offline navigation labels incomplete pages');
+const archivedPage = new TextDecoder().decode(offlineIntegratedMembers.find((member) => member.path === 'pages/guide--docs.html').bytes);
+assert(!/<script\b/i.test(archivedPage), 'integrated offline pages do not execute or retain original scripts');
+assert(archivedPage.includes('../assets/images/') && archivedPage.includes('../assets/svg/'), 'integrated HTML references local image and SVG archive members');
+const archivedCss = offlineIntegratedMembers.find((member) => member.path.startsWith('assets/css/') && member.path.endsWith('.css'));
+assert(archivedCss && !new TextDecoder().decode(archivedCss.bytes).includes('https://storybook.test'), 'nested CSS dependencies are rewritten to local paths');
+assert(offlineIntegratedResponse.pages.every((page) => ['STATIC_READY', 'PARTIAL', 'FAILED'].includes(page.status)));
+assert(offlineIntegratedHarness.indexedDbRecordCount > 0, 'partial exports retain validated staged files for authorized retry');
+
+const slowOfflineFixture = { ...offlineFixture, assets: new Map([...offlineFixture.assets].map(([path, asset]) => [path, { ...asset, delay: 70 }])) };
+const offlineLifecycleHarness = await makeHarness({ delay: 3, realZip: true, offlineFixture: slowOfflineFixture });
+await offlineLifecycleHarness.clickAction({ id: 1, url: sourceUrl });
+const pausedExportPromise = offlineLifecycleHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
+await offlineLifecycleHarness.waitOfflineFor((job) => job.state === 'downloading-assets');
+await offlineLifecycleHarness.send({ action: 'OFFLINE_CONTROL', control: 'PAUSE' });
+const offlinePaused = await offlineLifecycleHarness.waitOfflineFor((job) => job.state === 'paused');
+assert.equal(offlinePaused.assets.downloading, 0, 'pause waits for active asset requests to settle');
+await offlineLifecycleHarness.closeWindow(77);
+assert.equal((await offlineLifecycleHarness.send({ action: 'GET_OFFLINE_JOB' })).job.state, 'paused', 'closing the extension window leaves the Offline Static job paused');
+await offlineLifecycleHarness.clickAction({ id: 1, url: sourceUrl });
+assert.equal(offlineLifecycleHarness.extensionWindows.size, 1, 'the extension window reopens while the offline job is paused');
+await offlineLifecycleHarness.send({ action: 'OFFLINE_CONTROL', control: 'RESUME' });
+const offlineLifecycleResult = await pausedExportPromise;
+assert.equal(offlineLifecycleResult.ok, true, 'the paused export completes after resume');
+assert.equal(offlineLifecycleResult.job.state, 'completed');
+const authorizationRequired = await offlineLifecycleHarness.send({ action: 'OFFLINE_CONTROL', control: 'RETRY', authorizationConfirmed: false });
+assert.equal(authorizationRequired.ok, false, 'retry cannot bypass the explicit authorization confirmation');
+const offlineRetryResponse = await offlineLifecycleHarness.send({ action: 'OFFLINE_CONTROL', control: 'RETRY', authorizationConfirmed: true });
+assert.equal(offlineRetryResponse.ok, true, 'an incomplete archive can be retried after reconfirmation');
+assert.equal(offlineLifecycleHarness.offlineAssetCalls.get('/offline.css'), 1, 'retry reuses successfully staged CSS without downloading it again');
+assert.equal(offlineLifecycleHarness.offlineAssetCalls.get('/bundle.js'), 1, 'retry reuses successfully staged JavaScript without downloading it again');
+assert.equal(offlineLifecycleHarness.offlineAssetCalls.get('/shared.png'), 1, 'retry reuses successfully staged binary assets');
+assert.equal(offlineLifecycleHarness.offlineAssetCalls.get('/missing.png'), 2, 'retry attempts the failed resource again');
+
+const successfulOfflineFixture = { ...offlineFixture, html: (id) => offlineFixture.html(id).replace('<img src="/missing.png">', '').replace('<img src="/secret.png?token=fixture-secret">', '').replace('<img src="https://external.test/private.png">', ''), assets: new Map([...offlineFixture.assets].filter(([path]) => path !== '/missing.png')) };
+const offlineCleanupHarness = await makeHarness({ delay: 3, realZip: true, offlineFixture: successfulOfflineFixture });
+const offlineCleanupResult = await offlineCleanupHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
+assert.equal(offlineCleanupResult.ok, true);
+assert.equal(offlineCleanupHarness.indexedDbRecordCount, 0, 'fully successful export cleans its owned IndexedDB staging records');
+
+const offlineCancelHarness = await makeHarness({ delay: 3, realZip: true, offlineFixture: slowOfflineFixture });
+const cancelledOfflinePromise = offlineCancelHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
+await offlineCancelHarness.waitOfflineFor((job) => job.state === 'downloading-assets');
+await offlineCancelHarness.send({ action: 'OFFLINE_CONTROL', control: 'CANCEL' });
+const cancelledOfflineResult = await cancelledOfflinePromise;
+assert.equal(cancelledOfflineResult.ok, false, 'cancellation stops the offline archive handoff');
+assert.equal((await offlineCancelHarness.send({ action: 'GET_OFFLINE_JOB' })).job.state, 'cancelled');
+assert.equal(offlineCancelHarness.zipArchives.length, 0, 'cancelled Offline Static does not create a ZIP');
+assert.equal(offlineCancelHarness.tabs.size, 0, 'cancelled Offline Static closes only its owned crawl tab');
+assert.equal(offlineCancelHarness.indexedDbRecordCount, 0, 'cancelled export cleans its owned staging records');
+
+const offlineRecoveryHarness = await makeHarness({ delay: 3 });
+offlineRecoveryHarness.tabs.set(77, { id: 77, url: 'about:blank', status: 'complete' });
+offlineRecoveryHarness.tabs.set(78, { id: 78, url: 'https://user-tab.test/', status: 'complete' });
+offlineRecoveryHarness.state.storybookOfflineExportJob = { state: 'downloading-assets', phaseCode: 'DOWNLOADING_ASSETS', ownedTabId: 77, sourceUrl: 'https://storybook.test/storybook/', pages: { selected: 2 }, assets: { downloaded: 1 } };
+const recoveredOfflineJob = (await offlineRecoveryHarness.send({ action: 'GET_OFFLINE_JOB' })).job;
+assert.equal(recoveredOfflineJob.state, 'failed', 'a restarted worker fails explicitly when in-memory page buffers are unavailable');
+assert.equal(offlineRecoveryHarness.tabs.has(77), false, 'restart recovery removes the recorded owned crawler tab');
+assert.equal(offlineRecoveryHarness.tabs.has(78), true, 'restart recovery leaves unrelated user tabs open');
+
 // Exercise the bundled ZIP writer and verify its directory and CRC fields.
 const offscreenListeners = [];
 let archiveBlob;
@@ -619,7 +847,7 @@ const offscreen = vm.createContext({
 vm.runInContext(await read('offscreen.js'), offscreen, { filename: 'offscreen.js' });
 let zipResponse;
 offscreenListeners[0]({ action: 'MAKE_ZIP', files: archiveFiles }, {}, (response) => { zipResponse = response; });
-assert.equal(zipResponse.ok, true);
+assert.equal(zipResponse.ok, true, zipResponse.error || 'The ZIP writer rejected the existing Storybook archive fixture.');
 const zip = new Uint8Array(await archiveBlob.arrayBuffer());
 const view = new DataView(zip.buffer);
 assert.equal(view.getUint32(0, true), 0x04034b50);
@@ -657,22 +885,51 @@ for (const record of localRecords) {
   assert.equal(calculateCrc32(zip.slice(start, start + record.size)), record.checksum, 'ZIP member data matches CRC-32');
 }
 const zipTestDir = await mkdtemp(join(tmpdir(), 'storybook-markdown-zip-'));
+let independentUnzip = 'unavailable';
+let independentOfflineZip = 'unavailable';
 try {
   const zipPath = join(zipTestDir, 'export.zip');
   await writeFile(zipPath, Buffer.from(await archiveBlob.arrayBuffer()));
-  execFileSync('unzip', ['-t', zipPath], { stdio: 'pipe' });
-  const independentlyReadNames = execFileSync('unzip', ['-Z1', zipPath], { encoding: 'utf8' }).trim().split('\n').sort();
-  assert.deepEqual(independentlyReadNames, names.sort(), 'independent unzip reader sees every expected ZIP member');
+  const unzipTest = spawnSync('unzip', ['-t', zipPath], { encoding: 'utf8' });
+  independentUnzip = 'PASS';
+  if (['ENOENT', 'EPERM', 'EACCES'].includes(unzipTest.error?.code)) independentUnzip = `unavailable (${unzipTest.error.code})`;
+  else if (unzipTest.error || unzipTest.status !== 0) throw new Error(`Independent unzip validation failed: ${unzipTest.stderr || unzipTest.error?.message || unzipTest.stdout}`);
+  if (independentUnzip === 'PASS') {
+    const list = spawnSync('unzip', ['-Z1', zipPath], { encoding: 'utf8' });
+    if (list.error || list.status !== 0) throw new Error(`Independent unzip listing failed: ${list.stderr || list.error?.message || list.stdout}`);
+    assert.deepEqual(list.stdout.trim().split('\n').sort(), names.sort(), 'independent unzip reader sees every expected ZIP member');
+  }
+
+  const offlineZipPath = join(zipTestDir, 'offline-static.zip');
+  await writeFile(offlineZipPath, Buffer.from(await offlineIntegratedHarness.zipArchives[0].blob.arrayBuffer()));
+  const offlineListing = spawnSync('tar', ['-tf', offlineZipPath], { encoding: 'utf8' });
+  if (!offlineListing.error && offlineListing.status === 0) {
+    independentOfflineZip = 'PASS (tar)';
+    const offlineNames = offlineListing.stdout.split(/\r?\n/).filter(Boolean);
+    assert(offlineNames.includes('index.html') && offlineNames.includes('pages/guide--docs.html') && offlineNames.includes('ASSET_MANIFEST.json'), 'independent ZIP reader lists the generated Offline Static site');
+    const offlineExtractDir = await mkdtemp(join(zipTestDir, 'offline-extracted-'));
+    const offlineExtract = spawnSync('tar', ['-xf', offlineZipPath, '-C', offlineExtractDir], { encoding: 'utf8' });
+    if (offlineExtract.error || offlineExtract.status !== 0) throw new Error(`Independent Offline Static ZIP extraction failed: ${offlineExtract.stderr || offlineExtract.error?.message || offlineExtract.stdout}`);
+    const binaryMember = offlineIntegratedMembers.find((member) => member.path.startsWith('assets/images/') && !member.path.endsWith('/'));
+    assert(binaryMember, 'integrated offline archive contains a binary image fixture');
+    assert.deepEqual(await readFile(join(offlineExtractDir, ...binaryMember.path.split('/'))), Buffer.from(binaryMember.bytes), 'independent ZIP reader verifies extracted binary resource bytes');
+  } else if (!['ENOENT', 'EPERM', 'EACCES'].includes(offlineListing.error?.code)) {
+    throw new Error(`Independent Offline Static ZIP listing failed: ${offlineListing.stderr || offlineListing.error?.message || offlineListing.stdout}`);
+  }
 
   let filenameZipResponse;
   offscreenListeners[0]({ action: 'MAKE_ZIP', files: filenameExport.files }, {}, (response) => { filenameZipResponse = response; });
   assert.equal(filenameZipResponse.ok, true);
   const filenameZipPath = join(zipTestDir, 'filename-export.zip');
   await writeFile(filenameZipPath, Buffer.from(await archiveBlob.arrayBuffer()));
-  execFileSync('unzip', ['-t', filenameZipPath], { stdio: 'pipe' });
-  const filenameZipMembers = execFileSync('unzip', ['-Z1', filenameZipPath], { encoding: 'utf8' }).trim().split('\n').sort();
-  assert.deepEqual(filenameZipMembers, Array.from(filenameExport.files, (file) => file.path).sort(), 'independent unzip reader confirms exact generated filename members');
+  if (independentUnzip === 'PASS') {
+    const check = spawnSync('unzip', ['-t', filenameZipPath], { encoding: 'utf8' });
+    if (check.error || check.status !== 0) throw new Error(`Independent filename ZIP validation failed: ${check.stderr || check.error?.message || check.stdout}`);
+    const list = spawnSync('unzip', ['-Z1', filenameZipPath], { encoding: 'utf8' });
+    if (list.error || list.status !== 0) throw new Error(`Independent filename ZIP listing failed: ${list.stderr || list.error?.message || list.stdout}`);
+    assert.deepEqual(list.stdout.trim().split('\n').sort(), Array.from(filenameExport.files, (file) => file.path).sort(), 'independent unzip reader confirms exact generated filename members');
+  }
 } finally {
   await rm(zipTestDir, { recursive: true, force: true });
 }
-console.log(JSON.stringify({ result: 'PASS', currentMarkdown: true, allDocsZip: archiveFiles.length, figmaCssZip: true, exactStoryIdPaths: true, collisionHashesOnly: true, pathLinksConsistent: true, deterministicCompletionOrder: true, defaultConcurrency: 1, fallbackCategory: 'components', tokenContextAndConflicts: true, checkpointDeletion: true, partialRetry: true, pauseResume: true, cancellationCleanup: true, zipSignatures: true, independentUnzip: true, mockPoolPeakNavigations: { sequential: serialHarness.peakNavigations, concurrency2: boundedHarness.peakNavigations, concurrency3: threeHarness.peakNavigations } }));
+console.log(JSON.stringify({ result: 'PASS', currentMarkdown: true, allDocsZip: archiveFiles.length, figmaCssZip: true, exactStoryIdPaths: true, collisionHashesOnly: true, pathLinksConsistent: true, deterministicCompletionOrder: true, defaultConcurrency: 1, fallbackCategory: 'components', tokenContextAndConflicts: true, checkpointDeletion: true, partialRetry: true, pauseResume: true, cancellationCleanup: true, zipSignatures: true, offlineStatic: { currentDocsZip: true, allDocsZip: true, globalUrlDeduplication: true, actualAssetPeak: offlineIntegratedHarness.offlineAssetPeak, retryReusesStagedAssets: true, stagingRetentionAndCleanup: true, failedPageAndAssetReporting: true, windowReopen: true, workerRestartRecovery: true, authorizationGate: true, noExternalFetch: true }, independentOfflineZip, independentUnzip, mockPoolPeakNavigations: { sequential: serialHarness.peakNavigations, concurrency2: boundedHarness.peakNavigations, concurrency3: threeHarness.peakNavigations } }));

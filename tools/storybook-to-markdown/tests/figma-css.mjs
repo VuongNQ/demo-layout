@@ -6,6 +6,7 @@ import path from 'node:path';
 import { join } from 'node:path';
 import vm from 'node:vm';
 import { buildFigmaCssArchive, parseFigmaCss, parseFigmaSelectionUrl } from '../figma-css.js';
+import { readZip } from '../scripts/lib.mjs';
 
 const source = await readFile(new URL('./fixtures/figma-copy-css-edge-cases.css', import.meta.url), 'utf8');
 const exampleHeadings = ['Banner', 'Banner 5:2', 'Image', 'Gradient Background', 'whiteDot', 'Oval', 'Oval Copy 4', 'MDMC', 'Dots'];
@@ -37,7 +38,8 @@ assert.deepEqual(parsed.layers[0].annotations.map(({ kind, text }) => [kind, tex
   ['warning', 'warning: gradient preview may differ from the source design'],
 ]);
 assert.equal(parsed.layers[0].declarations.find(({ property }) => property === 'width').value, ' calc(100% - 40px)');
-assert.equal(parsed.layers[0].declarations.find(({ property }) => property === 'color').raw, '\ncolor: rgba(20, 30, 40, 0.75);');
+const sourceColorDeclaration = source.match(/\r?\ncolor: rgba\(20, 30, 40, 0\.75\);/)?.[0];
+assert.equal(parsed.layers[0].declarations.find(({ property }) => property === 'color').raw, sourceColorDeclaration, 'the parser preserves the fixture declaration bytes, including its original line ending');
 assert(parsed.layers[0].annotations.some(({ kind, text }) => kind === 'css-inline-comment' && text === 'inline color note'));
 assert.equal(parsed.layers[0].observed.dimensions.width[0], ' calc(100% - 40px)');
 assert.equal(parsed.layers[0].observed.dimensions.height[0], ' 320.5px');
@@ -158,8 +160,13 @@ try {
   const zipPath = join(temporaryDirectory, archive.filename);
   await writeFile(zipPath, zipBytes);
   const integrity = spawnSync('unzip', ['-t', zipPath], { encoding: 'utf8' });
-  assert.equal(integrity.status, 0, integrity.stderr || integrity.stdout);
-  assert.equal(execFileSync('unzip', ['-p', zipPath, 'source/original.css'], { encoding: 'utf8' }), source);
+  if (['ENOENT', 'EPERM', 'EACCES'].includes(integrity.error?.code)) {
+    const entries = readZip(zipBytes);
+    assert.equal(entries.find((entry) => entry.path === 'source/original.css').bytes.toString('utf8'), source, 'ZIP retains original CSS bytes when system unzip is unavailable');
+  } else {
+    assert.equal(integrity.status, 0, integrity.stderr || integrity.stdout);
+    assert.equal(execFileSync('unzip', ['-p', zipPath, 'source/original.css'], { encoding: 'utf8' }), source);
+  }
   const members = memberNames(zipBytes).sort();
   assert.deepEqual(members, [...archivePaths].sort());
   assert(members.includes('manifest.json'));
@@ -170,8 +177,11 @@ try {
   const emptyUrlZipPath = join(temporaryDirectory, 'empty-source-url.zip');
   await writeFile(emptyUrlZipPath, Buffer.from(await objectUrls.get(emptyUrlResponse.url).arrayBuffer()));
   const emptyUrlIntegrity = spawnSync('unzip', ['-t', emptyUrlZipPath], { encoding: 'utf8' });
-  assert.equal(emptyUrlIntegrity.status, 0, emptyUrlIntegrity.stderr || emptyUrlIntegrity.stdout);
-  assert.equal(execFileSync('unzip', ['-p', emptyUrlZipPath, 'manifest.json'], { encoding: 'utf8' }).includes('"source": null'), true);
+  if (['ENOENT', 'EPERM', 'EACCES'].includes(emptyUrlIntegrity.error?.code)) assert(readZip(await readFile(emptyUrlZipPath)).find((entry) => entry.path === 'manifest.json').bytes.toString('utf8').includes('"source": null'));
+  else {
+    assert.equal(emptyUrlIntegrity.status, 0, emptyUrlIntegrity.stderr || emptyUrlIntegrity.stdout);
+    assert.equal(execFileSync('unzip', ['-p', emptyUrlZipPath, 'manifest.json'], { encoding: 'utf8' }).includes('"source": null'), true);
+  }
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }

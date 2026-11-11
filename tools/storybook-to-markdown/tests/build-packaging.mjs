@@ -9,7 +9,7 @@ import { buildExtension, cleanGeneratedArtifacts, collectRuntimeGraph, packageEx
 const extensionRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'storybook-extension-build-test-'));
 const fixtureRoot = path.join(temporaryRoot, 'fixture');
-const sourceFiles = ['manifest.json', 'background.js', 'extractor.js', 'popup.html', 'popup.css', 'popup.js', 'figma-css.js', 'offscreen.html', 'offscreen.js'];
+const sourceFiles = ['manifest.json', 'background.js', 'extractor.js', 'offline-static.js', 'popup.html', 'popup.css', 'popup.js', 'figma-css.js', 'offscreen.html', 'offscreen.js'];
 
 async function makeFixture(root = fixtureRoot) {
   await mkdir(root, { recursive: true });
@@ -39,7 +39,7 @@ try {
 
   const firstBuild = await buildExtension(fixtureRoot);
   assert.deepEqual(firstBuild.files, expectedRuntimeFiles, 'build contains manifest and the complete referenced runtime graph only');
-  for (const file of ['background.js', 'extractor.js', 'popup.html', 'popup.css', 'popup.js', 'figma-css.js', 'offscreen.html', 'offscreen.js']) {
+  for (const file of ['background.js', 'extractor.js', 'offline-static.js', 'popup.html', 'popup.css', 'popup.js', 'figma-css.js', 'offscreen.html', 'offscreen.js']) {
     assert(firstBuild.files.includes(file), `referenced runtime resource is in dist: ${file}`);
   }
   assert(firstBuild.files.includes('assets/icon.svg'), 'manifest-referenced static icon asset is copied');

@@ -178,7 +178,9 @@ function assertSafeArchivePath(entryPath) {
   if (typeof entryPath !== 'string' || !entryPath || entryPath.includes('\\') || entryPath.startsWith('/') || entryPath.includes('\0')) {
     throw new Error(`Unsafe archive entry path: ${String(entryPath)}`);
   }
+  const isDirectory = entryPath.endsWith('/');
   const segments = entryPath.split('/');
+  if (isDirectory) segments.pop();
   if (segments.some((segment) => {
     const deviceName = segment.split('.')[0].replace(/[. ]+$/g, '');
     return !segment || segment === '.' || segment === '..' || /[<>:"|?*\u0000-\u001f]/.test(segment) || /[. ]$/.test(segment) || [...segment].length > 255 || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(deviceName);

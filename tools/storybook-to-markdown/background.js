@@ -1,6 +1,7 @@
-importScripts('extractor.js');
+importScripts('extractor.js', 'offline-static.js');
 
 const JOB_KEY = 'storybookExportJob';
+const OFFLINE_JOB_KEY = 'storybookOfflineExportJob';
 const WINDOW_CONTEXT_KEY = 'storybookToolWindowContext';
 const MAX_PAGES = 120;
 const NAVIGATION_TIMEOUT_MS = 20000;
@@ -11,6 +12,13 @@ let job = null;
 let runner = null;
 let persistQueue = Promise.resolve();
 let figmaCssExportActive = false;
+let offlineJob = null;
+let offlineRunner = null;
+let offlineStarting = false;
+let offlineAbortController = null;
+let offlinePersistQueue = Promise.resolve();
+let offlineProgressTimer = null;
+let lastOfflineProgressAt = 0;
 
 const now = () => Date.now();
 const errorText = (error) => String(error?.message || error || 'Unknown error').slice(0, 500);
@@ -358,14 +366,14 @@ function inspectDocsReadiness(expectedId) {
   };
 }
 
-async function waitForDocsReady(tabId, entry) {
+async function waitForDocsReady(tabId, entry, isCancelled = () => Boolean(job?.cancelRequested)) {
   const started = now();
   let previous = '';
   let stableCount = 0;
   let lastFrames = [];
   let samples = [];
   while (now() - started < READINESS_TIMEOUT_MS) {
-    if (job.cancelRequested) throw new Error('Cancelled after active page settled.');
+    if (isCancelled()) throw new Error('Cancelled after active page settled.');
     const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectDocsReadiness, args: [entry.id] });
     lastFrames = results.map((result) => ({ frameId: result.frameId, ...(result.result || {}) }));
     const probes = lastFrames.filter((result) => result.ready);
@@ -728,6 +736,285 @@ async function downloadCurrent(message) {
   return { filename, pages: 1, preview: output.slice(0, 8000) };
 }
 
+function captureOfflinePage(expectedId) {
+  const route = new URLSearchParams(location.search).get('path') || '';
+  const storyId = route.replace(/^\/docs\//, '') || new URLSearchParams(location.search).get('id') || '';
+  const selectors = ['.sbdocs-wrapper', '.sbdocs-content', '#storybook-docs', '[data-testid="storybook-docs"]'];
+  const root = selectors.map((selector) => document.querySelector(selector)).find(Boolean);
+  if (!root || storyId !== expectedId) throw new Error(`Docs snapshot mismatch: expected ${expectedId}, found ${storyId || 'none'}.`);
+  const title = String(root.querySelector('h1,h2')?.textContent || document.title).trim();
+  const head = [...document.head.children].filter((node) => node.tagName === 'STYLE' || node.tagName === 'LINK' && /stylesheet/i.test(node.rel) || node.tagName === 'META' && (node.hasAttribute('charset') || String(node.getAttribute('name') || '').toLowerCase() === 'viewport')).map((node) => node.outerHTML).join('\n');
+  const performanceResources = performance.getEntriesByType('resource').filter((resource) => ['css', 'img', 'image', 'script', 'font'].includes(resource.initiatorType) && new URL(resource.name, location.href).origin === location.origin).map((resource) => ({ url: resource.name, initiatorType: resource.initiatorType }));
+  const htmlAttrs = ['lang', 'dir', 'class', 'data-theme', 'data-color-scheme'].map((name) => { const value = document.documentElement.getAttribute(name); return value ? `${name}="${value.replace(/[&<>"']/g, '')}"` : ''; }).filter(Boolean).join(' ');
+  const bodyAttrs = ['class', 'data-theme', 'data-color-scheme'].map((name) => { const value = document.body?.getAttribute(name); return value ? `${name}="${value.replace(/[&<>"']/g, '')}"` : ''; }).filter(Boolean).join(' ');
+  const html = `<!doctype html><html ${htmlAttrs}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title.replace(/[&<>"']/g, '')}</title>${head}</head><body ${bodyAttrs}>${root.outerHTML}</body></html>`;
+  if (new TextEncoder().encode(html).byteLength > 1024 * 1024) throw new Error('Rendered Docs snapshot exceeds the 1 MiB per-page limit.');
+  return { id: storyId, title, url: location.href, html, frameUrl: location.href, frameTitle: document.title, rootSelector: selectors.find((selector) => document.querySelector(selector)) || '', performanceResources };
+}
+
+async function persistOfflineJob() {
+  if (offlineJob) await chrome.storage.local.set({ [OFFLINE_JOB_KEY]: clone(offlineJob) });
+}
+async function notifyOfflineJob() {
+  const snapshot = clone(offlineJob);
+  offlinePersistQueue = offlinePersistQueue.catch(() => {}).then(() => chrome.storage.local.set({ [OFFLINE_JOB_KEY]: snapshot })).then(() => chrome.runtime.sendMessage({ action: 'OFFLINE_JOB_UPDATED', job: snapshot }).catch(() => {}));
+  return offlinePersistQueue;
+}
+function scheduleOfflineProgress() {
+  const delay = Math.max(0, 200 - (Date.now() - lastOfflineProgressAt));
+  if (offlineProgressTimer) return;
+  offlineProgressTimer = setTimeout(() => { offlineProgressTimer = null; lastOfflineProgressAt = Date.now(); void notifyOfflineJob(); }, delay);
+}
+function offlineSafeError(error) {
+  return String(error?.message || error || 'Unknown error').replace(/https?:\/\/[^\s"'<>]+/gi, (url) => StorybookOffline.sanitizeUrl(url)).slice(0, 500);
+}
+const OFFLINE_DB_NAME = 'storybook-offline-assets-v1';
+function openOfflineDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(OFFLINE_DB_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('assets', { keyPath: 'key' });
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Could not open Offline Static staging database.'));
+  });
+}
+async function withOfflineStore(mode, execute) {
+  const db = await openOfflineDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction('assets', mode);
+      const store = tx.objectStore('assets');
+      let value;
+      try { value = execute(store); } catch (error) { reject(error); return; }
+      tx.oncomplete = () => resolve(value?.result);
+      tx.onerror = () => reject(tx.error || new Error('Offline asset staging transaction failed.'));
+      tx.onabort = () => reject(tx.error || new Error('Offline asset staging transaction was aborted.'));
+    });
+  } finally { db.close(); }
+}
+function offlineAssetKey(origin, canonicalUrl) { return `${origin}\n${canonicalUrl}`; }
+async function getStagedOfflineAsset(origin, entry) {
+  const key = offlineAssetKey(origin, entry.canonicalFetchKey);
+  const db = await openOfflineDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction('assets', 'readonly').objectStore('assets').get(key);
+      request.onsuccess = () => resolve(request.result ? { ...request.result, bytes: request.result.bytes } : null);
+      request.onerror = () => reject(request.error);
+    });
+  } finally { db.close(); }
+}
+async function putStagedOfflineAsset(origin, entry) {
+  const key = offlineAssetKey(origin, entry.canonicalFetchKey);
+  const bytes = entry.bytes.slice().buffer;
+  try {
+    await withOfflineStore('readwrite', (store) => store.put({ key, origin, contentHash: entry.contentHash, mimeType: entry.mimeType, resourceType: entry.resourceType, bytes, updatedAt: now() }));
+  } catch (error) { throw new Error(`Offline staging storage/quota failure: ${errorText(error)}`); }
+}
+async function cleanupOfflineStaging(origin, olderThan = 0) {
+  const db = await openOfflineDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('assets', 'readwrite');
+      const request = tx.objectStore('assets').openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const item = cursor.value;
+        if ((!origin || item.origin === origin) && (!olderThan || item.updatedAt < olderThan)) cursor.delete();
+        cursor.continue();
+      };
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error('Offline staging cleanup failed.'));
+      tx.onabort = () => reject(tx.error || new Error('Offline staging cleanup was aborted.'));
+    });
+  } finally { db.close(); }
+}
+async function removeOfflineOwnedTab(tabId) {
+  if (!Number.isInteger(tabId)) return true;
+  await chrome.tabs.remove(tabId).catch(() => {});
+  try { await chrome.tabs.get(tabId); return false; }
+  catch { return true; }
+}
+function offlineCurrentState() {
+  return chrome.storage.local.get(OFFLINE_JOB_KEY).then((stored) => stored[OFFLINE_JOB_KEY] || { state: 'idle', phaseCode: 'IDLE' });
+}
+async function offlineCapturePage(tabId, entry, sourceUrl, isCurrent) {
+  const target = isCurrent ? sourceUrl : buildDocsUrl(sourceUrl, entry.id);
+  if (!isCurrent) await navigateTab(tabId, target);
+  const ready = await waitForDocsReady(tabId, entry, () => Boolean(offlineJob?.cancelRequested));
+  const result = await chrome.scripting.executeScript({ target: { tabId, frameIds: [ready.frameId] }, func: captureOfflinePage, args: [entry.id] });
+  const page = result[0]?.result;
+  if (!page?.html || page.id !== entry.id) throw new Error(`No verified rendered HTML snapshot was captured for ${entry.id}.`);
+  return { ...page, status: 'SCANNED', readiness: { frameId: ready.frameId, id: ready.id, rootSelector: ready.matchedRootSelector, textLength: ready.length } };
+}
+async function downloadOfflineArchive(files, filename) {
+  const url = await createZipUrl(files);
+  try {
+    if (offlineJob?.cancelRequested) throw new Error('Offline export cancelled before archive download.');
+    const downloadId = await chrome.downloads.download({ url, filename, saveAs: true, conflictAction: 'uniquify' });
+    offlineJob.downloadId = downloadId; offlineJob.state = 'downloading-archive'; offlineJob.phaseCode = 'DOWNLOADING_ARCHIVE'; offlineJob.phase = 'Downloading offline ZIP'; await notifyOfflineJob();
+    const state = await waitForDownload(downloadId, url);
+    offlineJob.downloadId = null;
+    if (offlineJob.cancelRequested) throw new Error('Offline export cancelled.');
+    if (state !== 'complete') throw new Error('The offline archive download was interrupted.');
+    return filename;
+  } finally { await releaseArchiveUrl(url); }
+}
+async function exportOffline(message) {
+  if (message.authorizationConfirmed !== true) throw new Error('The user must explicitly confirm organizational authorization before Offline Static export.');
+  if (offlineRunner || offlineStarting) return { ok: false, error: 'An Offline Static export is already active.' };
+  offlineStarting = true;
+  let source;
+  let sourceOrigin;
+  let scope;
+  let id;
+  try {
+    const previousOfflineJob = await getOfflineJob(true);
+    if (Number.isInteger(previousOfflineJob.ownedTabId)) throw new Error(`Cannot start until exporter-owned crawler tab ${previousOfflineJob.ownedTabId} is closed.`);
+    await loadJob();
+    if (figmaCssExportActive || currentExport || (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state))) { offlineStarting = false; return { ok: false, error: 'Wait for the current Storybook or Figma export to finish.' }; }
+    source = await sourceTabContext({ docsOnly: message.scope === 'current' });
+    sourceOrigin = new URL(source.tabUrl).origin;
+    await cleanupOfflineStaging('', now() - 7 * 24 * 60 * 60 * 1000).catch(() => {});
+    scope = message.scope === 'all' ? 'all' : 'current';
+    id = new URL(source.tabUrl).searchParams.get('path')?.match(/^\/docs\/(.+)$/)?.[1] || new URL(source.tabUrl).searchParams.get('id') || '';
+    if (scope === 'current' && !id) throw new Error('The source tab does not identify the current Storybook Docs entry.');
+    offlineJob = { id: `offline-${now()}`, kind: 'offline-static', scope, sourceUrl: StorybookOffline.sanitizeUrl(source.tabUrl), origin: sourceOrigin, state: 'discovering', phaseCode: 'DISCOVERING_PAGES', phase: 'Discovering Docs pages', startedAt: now(), pages: { discovered: scope === 'current' ? 1 : 0, selected: scope === 'current' ? 1 : 0, scanning: 0, scanned: 0, staticReady: 0, partial: 0, failed: 0 }, assets: { discovered: 0, queued: 0, downloading: 0, downloaded: 0, failed: 0, skipped: 0, deduplicated: 0, downloadedBytes: 0 }, snapshotBytes: 0, currentPage: '', currentAsset: '', warnings: [], percent: 1, ownedTabId: null };
+    await notifyOfflineJob();
+  } catch (error) {
+    offlineStarting = false;
+    throw error;
+  }
+  offlineRunner = (async () => {
+    let ownedTab = null;
+    const waitAtPageBoundary = async () => {
+      while (offlineJob.pauseRequested && !offlineJob.cancelRequested) {
+        if (ownedTab?.id) {
+          if (!await removeOfflineOwnedTab(ownedTab.id)) throw new Error(`Could not close exporter-owned crawler tab ${ownedTab.id} at the pause boundary.`);
+          ownedTab = null; offlineJob.ownedTabId = null;
+        }
+        offlineJob.state = 'paused'; offlineJob.phaseCode = 'PAUSED'; offlineJob.phase = 'Paused between Docs pages; owned crawl tab closed'; await notifyOfflineJob(); await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      if (offlineJob.cancelRequested) throw new Error('Offline export cancelled.');
+    };
+    try {
+      let entries;
+      let discoveredCount;
+      if (scope === 'current') {
+        entries = [{ id, title: id, name: 'Docs', type: 'docs', tags: [] }]; discoveredCount = 1;
+      } else {
+        const found = await discover(source.tabId, source.tabUrl);
+        entries = found.entries; discoveredCount = found.discovered;
+        offlineJob.pages.discovered = discoveredCount; offlineJob.pages.selected = entries.length;
+        offlineJob.percent = 10;
+        if (discoveredCount > entries.length) offlineJob.warnings.push(`${discoveredCount - entries.length} Docs entries omitted by the 120-entry safety cap.`);
+        if (!entries.length) throw new Error('No Storybook Docs entries were discovered.');
+        ownedTab = await chrome.tabs.create({ url: 'about:blank', active: false });
+        offlineJob.ownedTabId = ownedTab.id;
+        await notifyOfflineJob();
+      }
+      const pages = [];
+      for (const entry of entries) {
+        await waitAtPageBoundary();
+        if (scope === 'all' && !ownedTab) { ownedTab = await chrome.tabs.create({ url: 'about:blank', active: false }); offlineJob.ownedTabId = ownedTab.id; await notifyOfflineJob(); }
+        offlineJob.state = 'scanning'; offlineJob.phaseCode = 'SCANNING_PAGES'; offlineJob.phase = 'Capturing rendered Docs'; offlineJob.currentPage = `${entry.title || entry.id} (${entry.id})`; offlineJob.pages.scanning++; await notifyOfflineJob();
+        try {
+          const page = await offlineCapturePage(scope === 'current' ? source.tabId : ownedTab.id, entry, source.tabUrl, scope === 'current');
+          const categoryEvidence = categoryFor(entry);
+          page.entry = { id: entry.id, title: entry.title || page.title, name: entry.name || '', tags: entry.tags || [], category: entry.category || categoryEvidence.category, categorySource: entry.categorySource || categoryEvidence.source, categoryConfidence: entry.categoryConfidence || categoryEvidence.confidence, categoryEvidence: entry.categoryEvidence || categoryEvidence.evidence };
+          const pageBytes = new TextEncoder().encode(page.html).byteLength;
+          if (offlineJob.snapshotBytes + pageBytes > 16 * 1024 * 1024) {
+            pages.push({ id: entry.id, title: entry.title || page.title, url: page.url, status: 'FAILED', error: 'Rendered Docs snapshots exceed the 16 MiB total snapshot limit.' }); offlineJob.pages.failed++;
+          } else {
+            offlineJob.snapshotBytes += pageBytes; pages.push(page); offlineJob.pages.scanned++;
+          }
+        } catch (error) {
+          pages.push({ id: entry.id, title: entry.title || entry.id, url: buildDocsUrl(source.tabUrl, entry.id), status: 'FAILED', error: offlineSafeError(error) }); offlineJob.pages.failed++;
+        }
+        offlineJob.pages.scanning--; await notifyOfflineJob();
+        offlineJob.percent = 10 + Math.floor((offlineJob.pages.scanned + offlineJob.pages.failed) / Math.max(1, entries.length) * 35);
+      }
+      if (ownedTab?.id) {
+        if (!await removeOfflineOwnedTab(ownedTab.id)) throw new Error(`Could not close exporter-owned crawler tab ${ownedTab.id} after page scanning.`);
+        ownedTab = null; offlineJob.ownedTabId = null;
+      }
+      await waitAtPageBoundary();
+      offlineJob.state = 'discovering-assets'; offlineJob.phaseCode = 'DISCOVERING_ASSETS'; offlineJob.phase = 'Discovering static resources'; offlineJob.percent = 50; await notifyOfflineJob();
+      offlineAbortController = new AbortController();
+      const assetStates = new Map();
+      const result = await StorybookOffline.buildOfflineSite(pages, {
+        approvedOrigin: sourceOrigin,
+        concurrency: 3,
+        scope,
+        sourceUrl: source.tabUrl,
+        discoveredCount,
+        signal: offlineAbortController.signal,
+        pauseRequested: () => offlineJob.pauseRequested,
+        onPauseState: (paused) => { offlineJob.state = paused ? 'paused' : 'downloading-assets'; offlineJob.phaseCode = paused ? 'PAUSED' : 'DOWNLOADING_ASSETS'; offlineJob.phase = paused ? 'Paused after in-flight asset requests settled' : 'Resumed asset downloads'; void notifyOfflineJob(); },
+        onAssetDiscovered: (asset) => { offlineJob.assets.discovered++; if (asset.status === 'SKIPPED') offlineJob.assets.skipped++; scheduleOfflineProgress(); },
+        onPhase: (phase) => { offlineJob.state = phase; offlineJob.phaseCode = phase === 'rewriting-references' ? 'REWRITING_REFERENCES' : 'GENERATING_OFFLINE_SITE'; offlineJob.phase = phase === 'rewriting-references' ? 'Rewriting downloaded asset references' : 'Generating offline HTML and local navigation'; void notifyOfflineJob(); },
+        loadStagedAsset: (entry) => getStagedOfflineAsset(sourceOrigin, entry),
+        stageAsset: (entry) => putStagedOfflineAsset(sourceOrigin, entry),
+        maxResourceBytes: 4 * 1024 * 1024,
+        maxTotalBytes: 12 * 1024 * 1024,
+        onProgress: (asset) => {
+          offlineJob.currentAsset = StorybookOffline.sanitizeUrl(asset.originalUrl);
+          const assets = offlineJob.assets;
+          const previous = assetStates.get(asset.assetId); assetStates.set(asset.assetId, asset.status);
+          if (asset.status === 'QUEUED') { if (previous !== 'QUEUED') assets.queued++; offlineJob.state = 'downloading-assets'; offlineJob.phaseCode = 'DOWNLOADING_ASSETS'; offlineJob.phase = 'Downloading approved same-origin assets'; }
+          if (asset.status === 'DOWNLOADING' && previous !== 'DOWNLOADING') assets.downloading++;
+          if (asset.status === 'FAILED' && previous !== 'FAILED') { assets.failed++; if (previous === 'DOWNLOADING') assets.downloading = Math.max(0, assets.downloading - 1); }
+          if (asset.status === 'SKIPPED' && previous !== 'SKIPPED') { assets.skipped++; if (previous === 'DOWNLOADING') assets.downloading = Math.max(0, assets.downloading - 1); }
+          if (asset.status === 'DOWNLOADED' && previous !== 'DOWNLOADED') { assets.downloaded++; if (previous === 'DOWNLOADING') assets.downloading = Math.max(0, assets.downloading - 1); }
+          if (asset.warnings?.some((warning) => warning.includes('shares an archive'))) assets.deduplicated++;
+          const settled = assets.downloaded + assets.failed + assets.skipped;
+          offlineJob.percent = Math.min(85, 50 + Math.floor(settled / Math.max(1, assets.discovered) * 35));
+          scheduleOfflineProgress();
+        },
+      });
+      if (offlineJob.cancelRequested) throw new Error('Offline export cancelled.');
+      offlineJob.assets.discovered = result.registry.values().length;
+      offlineJob.assets.downloaded = result.registry.values().filter((asset) => asset.status === 'DOWNLOADED').length;
+      offlineJob.assets.failed = result.registry.values().filter((asset) => asset.status === 'FAILED').length;
+      offlineJob.assets.skipped = result.registry.values().filter((asset) => asset.status === 'SKIPPED').length;
+      const assetEntries = result.registry.values();
+      const contentDuplicates = assetEntries.filter((asset) => asset.warnings.some((warning) => warning.includes('shares an archive'))).length;
+      const urlDuplicates = assetEntries.reduce((total, asset) => total + Math.max(0, (asset.referenceCount || 1) - 1), 0);
+      offlineJob.assets.deduplicated = urlDuplicates + contentDuplicates;
+      offlineJob.assets.downloadedBytes = result.downloadStats.downloadedBytes;
+      offlineJob.pages.staticReady = result.pageResults.filter((page) => page.status === 'STATIC_READY').length;
+      offlineJob.pages.partial = result.pageResults.filter((page) => page.status === 'PARTIAL').length;
+      offlineJob.pages.failed = result.pageResults.filter((page) => page.status === 'FAILED').length;
+      offlineJob.warnings.push(...result.pageResults.flatMap((page) => page.warnings).slice(0, 30));
+      offlineJob.warnings.push(...result.registry.values().filter((asset) => asset.status !== 'DOWNLOADED').slice(0, 30).map((asset) => `${asset.resourceType}: ${asset.originalUrl || asset.failureReason} (${asset.status})`));
+      const uncompressedBytes = result.files.reduce((total, file) => total + (file.bytes?.byteLength || new TextEncoder().encode(file.content || '').byteLength), 0);
+      if (uncompressedBytes > 32 * 1024 * 1024) throw new Error('Offline ZIP exceeds its 32 MiB uncompressed in-memory export limit. Nothing was truncated.');
+      offlineJob.state = 'compressing'; offlineJob.phase = 'Generating offline site ZIP'; offlineJob.percent = 90; await notifyOfflineJob();
+      const filename = `storybook-offline-${scope}-${new Date().toISOString().slice(0,10)}.zip`;
+      await downloadOfflineArchive(result.files, filename);
+      const retryableFailures = assetEntries.some((asset) => asset.status === 'FAILED') || result.pageResults.some((page) => page.status === 'FAILED');
+      if (retryableFailures) offlineJob.warnings.push('Validated staged assets were retained so an authorized retry can reuse them.');
+      else await cleanupOfflineStaging(sourceOrigin).catch((error) => { offlineJob.warnings.push(`Temporary asset cleanup failed: ${offlineSafeError(error)}`); });
+      offlineJob.state = 'completed'; offlineJob.phaseCode = 'COMPLETED'; offlineJob.phase = `Downloaded ${filename}`; offlineJob.filename = filename; offlineJob.percent = 100; offlineJob.completedAt = now();
+      return { ok: true, filename, job: clone(offlineJob), pages: result.pageResults };
+    } catch (error) {
+      offlineJob.state = offlineJob.cancelRequested ? 'cancelled' : 'failed'; offlineJob.phaseCode = offlineJob.state === 'cancelled' ? 'CANCELLED' : 'FAILED'; offlineJob.phase = offlineJob.state === 'cancelled' ? 'Cancelled' : 'Offline export failed'; offlineJob.lastError = offlineSafeError(error); offlineJob.completedAt = now();
+      if (offlineJob.state === 'cancelled') await cleanupOfflineStaging(sourceOrigin).catch(() => {});
+      throw error;
+    } finally {
+      if (ownedTab?.id) {
+        if (await removeOfflineOwnedTab(ownedTab.id)) { ownedTab = null; offlineJob.ownedTabId = null; }
+        else {
+          offlineJob.state = 'failed'; offlineJob.phaseCode = 'FAILED'; offlineJob.phase = 'Offline export ended but its owned crawler tab could not be closed'; offlineJob.lastError = `Exporter-owned crawler tab ${ownedTab.id} is still open.`;
+        }
+      } else offlineJob.ownedTabId = null;
+      offlineJob.currentPage = ''; offlineJob.currentAsset = ''; await notifyOfflineJob(); offlineRunner = null; offlineAbortController = null;
+    }
+  })();
+  offlineStarting = false;
+  return offlineRunner;
+}
+
 function validateFigmaCssArchive(files, filename) {
   if (!Array.isArray(files) || files.length < 6 || files.length > 65535) throw new Error('Figma CSS archive has an invalid file list.');
   if (typeof filename !== 'string' || !/^figma-css-[\p{L}\p{N}_-]{1,80}\.zip$/u.test(filename)) throw new Error('Figma CSS archive filename is unsafe.');
@@ -754,7 +1041,7 @@ function validateFigmaCssArchive(files, filename) {
 
 async function downloadFigmaCss(message) {
   await loadJob();
-  if (figmaCssExportActive || currentExport) return { ok: false, error: 'Another extension export is already running.' };
+  if (figmaCssExportActive || currentExport || offlineRunner || offlineStarting) return { ok: false, error: 'Another extension export is already running.' };
   if (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) return { ok: false, error: 'Finish or pause the active Storybook export before creating a Figma CSS ZIP.' };
   validateFigmaCssArchive(message.files, message.filename);
   figmaCssExportActive = true;
@@ -884,6 +1171,7 @@ async function scheduleRunner() {
 async function startAll(message) {
   const source = await sourceTabContext();
   await loadJob();
+  if (offlineRunner || offlineStarting) return { ok: false, error: 'Wait for the active Offline Static export to finish.' };
   if (figmaCssExportActive) return { ok: false, error: 'Wait for the Figma CSS ZIP export to finish before starting a Storybook crawl.' };
   if (currentExport) return { ok: false, error: 'A Current Docs export is already running.' };
   if (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) return { ok: true, duplicate: true, job: progressState() };
@@ -1001,6 +1289,25 @@ async function getJob() {
   return progressState();
 }
 
+async function getOfflineJob(forceRecovery = false) {
+  if (!offlineJob) offlineJob = await offlineCurrentState();
+  if (offlineJob && !offlineRunner && (!offlineStarting || forceRecovery)) {
+    const wasActive = ['discovering', 'scanning', 'pausing', 'paused', 'resuming', 'cancelling', 'discovering-assets', 'downloading-assets', 'rewriting-references', 'generating-offline-site', 'compressing', 'downloading-archive'].includes(offlineJob.state);
+    if (Number.isInteger(offlineJob.ownedTabId)) {
+      const ownedTabId = offlineJob.ownedTabId;
+      if (await removeOfflineOwnedTab(ownedTabId)) offlineJob.ownedTabId = null;
+      else {
+        offlineJob.state = 'failed'; offlineJob.phaseCode = 'FAILED'; offlineJob.phase = 'Offline export stopped but its owned crawler tab is still open'; offlineJob.lastError = `Could not close exporter-owned crawler tab ${ownedTabId}.`;
+      }
+    }
+    if (wasActive && offlineJob.state !== 'failed') {
+      offlineJob.state = 'failed'; offlineJob.phaseCode = 'FAILED'; offlineJob.phase = 'Worker restarted before export finished'; offlineJob.lastError = 'In-memory page and asset buffers cannot be recovered; start the export again.';
+    }
+    if (wasActive || Number.isInteger(offlineJob.ownedTabId)) await notifyOfflineJob();
+  }
+  return clone(offlineJob || { state: 'idle', phaseCode: 'IDLE' });
+}
+
 chrome.downloads.onChanged.addListener((delta) => {
   if (!delta.state || !['complete', 'interrupted'].includes(delta.state.current)) return;
   loadJob().then(async () => {
@@ -1015,15 +1322,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.action === 'MAKE_ZIP' || message?.action === 'REVOKE_URL') return;
   (async () => {
     if (message?.action === 'GET_JOB') return { ok: true, job: await getJob() };
+    if (message?.action === 'GET_OFFLINE_JOB') return { ok: true, job: await getOfflineJob() };
     if (message?.action === 'GET_SOURCE_TAB') return { ok: true, ...(await sourceTabContext()) };
     if (message?.action === 'START_ALL') return startAll(message);
     if (message?.action === 'RESUME') return resumeJob();
     if (['PAUSE', 'CANCEL', 'RETRY_ENTRY'].includes(message?.action)) return controlJob(message.action, message.id);
     if (message?.action === 'EXPORT_FIGMA_CSS') return downloadFigmaCss(message);
+    if (message?.action === 'EXPORT_OFFLINE') return exportOffline(message);
+    if (message?.action === 'OFFLINE_CONTROL') {
+      if (!offlineJob) return { ok: false, error: 'No Offline Static job is available.' };
+      if (message.control === 'PAUSE' && offlineRunner) { offlineJob.pauseRequested = true; offlineJob.state = 'pausing'; offlineJob.phaseCode = 'PAUSING'; offlineJob.phase = 'Stopping new pages and assets'; await notifyOfflineJob(); return { ok: true, job: clone(offlineJob) }; }
+      if (message.control === 'RESUME' && offlineRunner) { offlineJob.pauseRequested = false; offlineJob.state = 'resuming'; offlineJob.phaseCode = 'RESUMING'; offlineJob.phase = 'Resuming the saved in-memory export'; await notifyOfflineJob(); return { ok: true, job: clone(offlineJob) }; }
+      if (message.control === 'CANCEL' && offlineRunner) { offlineJob.cancelRequested = true; offlineJob.pauseRequested = false; offlineJob.state = 'cancelling'; offlineJob.phaseCode = 'CANCELLING'; offlineJob.phase = 'Cancelling the export and cleaning owned resources'; offlineAbortController?.abort(); if (offlineJob.downloadId) await chrome.downloads.cancel(offlineJob.downloadId).catch(() => {}); await notifyOfflineJob(); return { ok: true, job: clone(offlineJob) }; }
+      if (message.control === 'RETRY' && message.authorizationConfirmed === true && (['failed', 'cancelled'].includes(offlineJob.state) || offlineJob.state === 'completed' && (offlineJob.assets?.failed || offlineJob.pages?.failed || offlineJob.pages?.partial))) return exportOffline({ scope: offlineJob.scope, authorizationConfirmed: true });
+      return { ok: false, error: 'This Offline Static action is unavailable in the current state.' };
+    }
     if (message?.action === 'EXPORT_CURRENT') {
       const source = await sourceTabContext({ docsOnly: true });
       await loadJob();
-      if (figmaCssExportActive || currentExport || (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state))) return { ok: false, error: 'Another export job is already active.' };
+      if (figmaCssExportActive || currentExport || offlineRunner || offlineStarting || (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state))) return { ok: false, error: 'Another export job is already active.' };
       const cleanup = await closeWorkerTabs();
       if (!cleanup.ok) return { ok: false, error: `Close temporary tabs ${cleanup.remaining.join(', ')} before exporting.` };
       currentExport = true;
@@ -1046,5 +1363,6 @@ chrome.runtime.onStartup.addListener(() => {
       for (const entry of job.entries) if (entry.status === 'running') entry.status = 'queued';
       void runAll();
     }
+    await getOfflineJob();
   }).catch(() => {});
 });
