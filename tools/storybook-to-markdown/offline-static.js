@@ -3,7 +3,7 @@
   'use strict';
   const MAX_RESOURCE_BYTES = 4 * 1024 * 1024;
   const MAX_TOTAL_BYTES = 12 * 1024 * 1024;
-  const MAX_PAGE_BYTES = 1024 * 1024;
+  const MAX_PAGE_BYTES = 4 * 1024 * 1024;
   const MAX_PAGES_TOTAL_BYTES = 16 * 1024 * 1024;
   const REQUEST_TIMEOUT_MS = 15000;
   const RETRIES = 2;

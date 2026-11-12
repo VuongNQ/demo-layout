@@ -75,6 +75,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
   let peakNavigations = 0;
   let mainContext;
   const probeCounts = new Map();
+  const captureCalls = [];
   const extractionFrames = [];
   const offlineAssetCalls = new Map();
   const offlineRequestedUrls = [];
@@ -213,6 +214,8 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
         if (typeof args[0] === 'string' && args[0].startsWith('http')) return [{ frameId: 0, result: await func(...args) }];
         if (func.name === 'captureOfflinePage') {
           const id = args[0];
+          captureCalls.push({ id, target });
+          if (offlineFixture?.capture) return offlineFixture.capture({ func, args, target, attempt: captureCalls.length });
           const tab = target.tabId === 1 ? sourceTab : tabs.get(target.tabId);
           const managerUrl = tab?.url || mainContext.location.href;
           const frameUrl = args[1] === 'story' ? new URL(`iframe.html?id=${id}&viewMode=story`, managerUrl).href : managerUrl;
@@ -254,7 +257,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
               document: { title: 'Storybook Docs', querySelector: (selector) => frame.root && selector === (frame.rootSelector || '.sbdocs-wrapper') ? root : null },
             });
             const result = vm.runInContext(`(${func.toString()})(...${JSON.stringify(args)})`, frameContext);
-            return { frameId, result };
+            return { frameId, documentId: frame.documentId, result };
           });
         }
         const frameId = target.frameIds?.[0];
@@ -350,7 +353,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     }
     throw new Error(`Timed out waiting for Offline Static state. Last state: ${state.storybookOfflineExportJob?.state}`);
   }
-  return { send, waitFor, waitOfflineFor, state, tabs, extensionWindows, windowFocusCalls, actionClicks, clickAction: (tab) => [...actionClicks][0](tab), closeWindow: (id) => chrome.windows.remove(id), setSourceTab: (tab) => { sourceTab = tab; }, getSourceTab: () => sourceTab, filesByZip, zipArchives, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, offlineAssetCalls, offlineRequestedUrls, get indexedDbRecordCount() { return [...indexedDbRecords.values()].filter((record) => record.kind !== 'page-snapshot' && record.key !== 'zip:offline-completed').length; }, get cachedPageCount() { return [...indexedDbRecords.values()].filter((record) => record.kind === 'page-snapshot').length; }, get offlineAssetPeak() { return offlineAssetPeak; }, get peakNavigations() { return peakNavigations; } };
+  return { send, waitFor, waitOfflineFor, state, tabs, extensionWindows, windowFocusCalls, actionClicks, clickAction: (tab) => [...actionClicks][0](tab), closeWindow: (id) => chrome.windows.remove(id), setSourceTab: (tab) => { sourceTab = tab; }, getSourceTab: () => sourceTab, filesByZip, zipArchives, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, captureCalls, extractionFrames, offlineAssetCalls, offlineRequestedUrls, get indexedDbRecordCount() { return [...indexedDbRecords.values()].filter((record) => record.kind !== 'page-snapshot' && record.key !== 'zip:offline-completed').length; }, get cachedPageCount() { return [...indexedDbRecords.values()].filter((record) => record.kind === 'page-snapshot').length; }, get offlineAssetPeak() { return offlineAssetPeak; }, get peakNavigations() { return peakNavigations; } };
 }
 
 function defaultEntries() {
@@ -795,6 +798,46 @@ assert.deepEqual(
   Buffer.from(await catalogHarness.zipArchives[0].blob.arrayBuffer()),
   'the saved ZIP downloads again byte-for-byte without crawling or requesting assets',
 );
+
+const loadingStoryId = 'components-button--loading';
+const loadingHarness = await makeHarness({
+  entries: [{ id: loadingStoryId, type: 'story', title: 'Components/Button', name: 'Loading' }],
+  readinessFrames: [{ frameId: 3, routeType: 'iframe', root: true, rootSelector: '#storybook-root', text: 'Loading' }],
+});
+const loadingExport = await loadingHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });
+assert.equal(loadingExport.job.pages.staticReady, 1, 'a rendered Loading button is a valid story');
+
+const dataTableId = 'components-data-table--docs';
+const dataTableHarness = await makeHarness({
+  entries: [{ id: dataTableId, type: 'docs', title: 'Components/Data Table', name: 'Docs' }],
+  readinessFrames: [
+    { frameId: 0, routeType: 'main', root: true },
+    { frameId: 4, routeType: 'iframe', root: true, documentId: 'data-table-preview-document' },
+  ],
+  realZip: true,
+  offlineFixture: {
+    capture: ({ func, args, attempt }) => {
+      if (attempt === 1) return [];
+      const root = { querySelector: () => null, outerHTML: `<main class="sbdocs-wrapper"><h1>Data Table</h1><p>${'x'.repeat(1024 * 1024 + 1)}</p></main>` };
+      const context = vm.createContext({
+        URL, URLSearchParams, TextEncoder,
+        location: new URL(`https://storybook.test/storybook/iframe.html?id=${dataTableId}&viewMode=docs`),
+        performance: { getEntriesByType: () => [] },
+        document: {
+          title: 'Data Table Docs', querySelector: (selector) => selector === '.sbdocs-wrapper' ? root : null,
+          head: { children: [] }, documentElement: { getAttribute: () => null },
+        },
+      });
+      return [{ frameId: 4, result: vm.runInContext(`(${func.toString()})(...${JSON.stringify(args)})`, context) }];
+    },
+  },
+});
+const dataTableExport = await dataTableHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });
+assert.equal(dataTableExport.job.pages.staticReady, 1, 'retry captures Docs after the first injection returns no snapshot');
+assert.equal(dataTableHarness.captureCalls.length, 2);
+assert(dataTableHarness.captureCalls.every(({ target }) => target.documentIds[0] === 'data-table-preview-document'));
+const dataTableMembers = readZip(Buffer.from(await dataTableHarness.zipArchives[0].blob.arrayBuffer()));
+assert(dataTableMembers.find((file) => file.path === `pages/${dataTableId}.html`).bytes.length > 1024 * 1024);
 
 const pageCacheHarness = await makeHarness({ entries: catalogEntries, realZip: true });
 const exportCatalog = () => pageCacheHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });

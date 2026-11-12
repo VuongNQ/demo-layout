@@ -355,7 +355,9 @@ function inspectDocsReadiness(expectedId, type = 'docs') {
   // Matching ID, substantive text and stability are the readiness authority;
   // busy selectors remain diagnostic evidence rather than an unconditional veto.
   const storyBlocked = type === 'story' && document.body?.matches('.sb-show-errordisplay, .sb-show-nopreview, .sb-show-preparing-story');
-  const substantive = !placeholderOnly && (type === 'story' ? !storyBlocked && Boolean(root.childElementCount || value) : value.length > 0);
+  const substantive = type === 'story'
+    ? !storyBlocked && Boolean(root.childElementCount || value && !placeholderOnly)
+    : value.length > 0 && !placeholderOnly;
   const content = type === 'story' ? root.innerHTML : value;
   let textHash = 2166136261;
   for (let index = 0; index < content.length; index++) textHash = Math.imul(textHash ^ content.charCodeAt(index), 16777619);
@@ -372,25 +374,35 @@ function inspectDocsReadiness(expectedId, type = 'docs') {
   };
 }
 
-async function waitForEntryReady(tabId, entry, isCancelled = () => Boolean(job?.cancelRequested)) {
+async function waitForEntryReady(tabId, entry, isCancelled = () => Boolean(job?.cancelRequested), capture) {
   const started = now();
   let previous = '';
   let stableCount = 0;
   let lastFrames = [];
+  let captureIssue = '';
   let samples = [];
   while (now() - started < READINESS_TIMEOUT_MS) {
     if (isCancelled()) throw new Error('Cancelled after active page settled.');
     const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectDocsReadiness, args: [entry.id, entry.type || 'docs'] });
-    lastFrames = results.map((result) => ({ frameId: result.frameId, ...(result.result || {}) }));
+    lastFrames = results.map(({ frameId, documentId, result }) => ({ frameId, documentId, ...result }));
     const probes = lastFrames.filter((result) => result.ready);
-    probes.sort((a, b) => a.frameId - b.frameId);
+    probes.sort((a, b) => (capture ? Number(b.viewMode === 'docs') - Number(a.viewMode === 'docs') : 0) || a.frameId - b.frameId);
     if (probes.length) {
       const selected = probes[0];
-      const signature = `${selected.frameId}:${selected.id}:${selected.matchedRootSelector}:${selected.signature}`;
+      const signature = `${selected.documentId || selected.frameId}:${selected.id}:${selected.matchedRootSelector}:${selected.signature}`;
       stableCount = signature === previous ? stableCount + 1 : 1;
       previous = signature;
       samples = [...samples, { sample: stableCount, frameId: selected.frameId, id: selected.id, rootSelector: selected.matchedRootSelector, textLength: selected.length, busySelectors: selected.busySelectors }].slice(-3);
-      if (stableCount >= 3) return { ...selected, frameId: selected.frameId, stabilizationSamples: samples };
+      if (stableCount >= 3) {
+        const ready = { ...selected, stabilizationSamples: samples };
+        if (!capture) return ready;
+        const result = await capture(ready).catch((error) => ({ captureError: offlineSafeError(error) }));
+        if (result?.html && result.id === entry.id) return { ...ready, page: result };
+        if (result?.tooLarge) throw new Error(result.captureError);
+        captureIssue = result?.captureError || `Frame ${ready.frameId} returned no verified snapshot`;
+        stableCount = 0;
+        samples = [];
+      }
     } else {
       previous = '';
       stableCount = 0;
@@ -401,6 +413,7 @@ async function waitForEntryReady(tabId, entry, isCancelled = () => Boolean(job?.
   const frameSummary = lastFrames.map(({ frameId, id, route, viewMode, matchedRootSelector, length, busySelectors, reason }) =>
     `frame ${frameId}: id=${id || 'none'}, route=${route || 'none'}, viewMode=${viewMode || 'none'}, root=${matchedRootSelector || 'none'}, text=${length || 0}, busy=${busySelectors?.join(',') || 'none'}, reason=${reason || 'unknown'}`,
   ).join('; ').slice(0, 900);
+  if (captureIssue) throw new Error(`Could not capture ${entry.id} after the preview rendered: ${captureIssue}`);
   throw new Error(`${entry.type === 'story' ? 'Story' : 'Docs'} readiness timed out after ${READINESS_TIMEOUT_MS / 1000}s (expected ID: ${entry.id}). Last frame probes: ${frameSummary || 'none'}`);
 }
 
@@ -759,21 +772,25 @@ async function downloadCurrent(message) {
   return { filename, pages: 1, preview: output.slice(0, 8000) };
 }
 
-function captureOfflinePage(expectedId, type = 'docs') {
-  const params = new URLSearchParams(location.search);
-  const route = params.get('path') || '';
-  const storyId = type === 'story' ? (params.get('viewMode') === 'story' ? params.get('id') : '') : route.replace(/^\/docs\//, '') || params.get('id') || '';
-  const selectors = type === 'story' ? ['#storybook-root'] : ['.sbdocs-wrapper', '.sbdocs-content', '#storybook-docs', '[data-testid="storybook-docs"]'];
-  const root = selectors.map((selector) => document.querySelector(selector)).find(Boolean);
-  if (!root || storyId !== expectedId) throw new Error(`Page snapshot mismatch: expected ${expectedId}, found ${storyId || 'none'}.`);
-  const title = String(root.querySelector('h1,h2')?.textContent || document.title).trim();
-  const head = [...document.head.children].filter((node) => node.tagName === 'STYLE' || node.tagName === 'LINK' && /stylesheet/i.test(node.rel) || node.tagName === 'META' && (node.hasAttribute('charset') || String(node.getAttribute('name') || '').toLowerCase() === 'viewport')).map((node) => node.outerHTML).join('\n');
-  const performanceResources = performance.getEntriesByType('resource').filter((resource) => ['css', 'img', 'image', 'script', 'font'].includes(resource.initiatorType) && new URL(resource.name, location.href).origin === location.origin).map((resource) => ({ url: resource.name, initiatorType: resource.initiatorType }));
-  const htmlAttrs = ['lang', 'dir', 'class', 'data-theme', 'data-color-scheme'].map((name) => { const value = document.documentElement.getAttribute(name); return value ? `${name}="${value.replace(/[&<>"']/g, '')}"` : ''; }).filter(Boolean).join(' ');
-  const bodyAttrs = ['class', 'data-theme', 'data-color-scheme'].map((name) => { const value = document.body?.getAttribute(name); return value ? `${name}="${value.replace(/[&<>"']/g, '')}"` : ''; }).filter(Boolean).join(' ');
-  const html = `<!doctype html><html ${htmlAttrs}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title.replace(/[&<>"']/g, '')}</title>${head}</head><body ${bodyAttrs}>${root.outerHTML}</body></html>`;
-  if (new TextEncoder().encode(html).byteLength > 1024 * 1024) throw new Error('Rendered page snapshot exceeds the 1 MiB per-page limit.');
-  return { id: storyId, title, url: location.href, html, frameUrl: location.href, frameTitle: document.title, rootSelector: selectors.find((selector) => document.querySelector(selector)) || '', performanceResources };
+function captureOfflinePage(expectedId, type, selector, maxPageBytes) {
+  try {
+    const params = new URLSearchParams(location.search);
+    const route = params.get('path') || '';
+    const storyId = type === 'docs' && route.startsWith('/docs/') ? route.slice('/docs/'.length) : params.get('viewMode') === type ? params.get('id') : '';
+    const root = document.querySelector(selector);
+    if (!root || storyId !== expectedId) return { captureError: `Preview changed during capture (expected ${expectedId}, found ${storyId || 'none'}).` };
+    const title = String(root.querySelector('h1,h2')?.textContent || document.title).trim();
+    const head = [...document.head.children].filter((node) => node.tagName === 'STYLE' || node.tagName === 'LINK' && /stylesheet/i.test(node.rel) || node.tagName === 'META' && (node.hasAttribute('charset') || String(node.getAttribute('name') || '').toLowerCase() === 'viewport')).map((node) => node.outerHTML).join('\n');
+    const performanceResources = performance.getEntriesByType('resource').filter((resource) => ['css', 'img', 'image', 'script', 'font'].includes(resource.initiatorType) && new URL(resource.name, location.href).origin === location.origin).map((resource) => ({ url: resource.name, initiatorType: resource.initiatorType }));
+    const htmlAttrs = ['lang', 'dir', 'class', 'data-theme', 'data-color-scheme'].map((name) => { const value = document.documentElement.getAttribute(name); return value ? `${name}="${value.replace(/[&<>"']/g, '')}"` : ''; }).filter(Boolean).join(' ');
+    const bodyAttrs = ['class', 'data-theme', 'data-color-scheme'].map((name) => { const value = document.body?.getAttribute(name); return value ? `${name}="${value.replace(/[&<>"']/g, '')}"` : ''; }).filter(Boolean).join(' ');
+    const html = `<!doctype html><html ${htmlAttrs}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title.replace(/[&<>"']/g, '')}</title>${head}</head><body ${bodyAttrs}>${root.outerHTML}</body></html>`;
+    const bytes = new TextEncoder().encode(html).byteLength;
+    if (bytes > maxPageBytes) return { tooLarge: true, captureError: `Rendered snapshot for ${expectedId} is ${bytes} bytes and exceeds the ${maxPageBytes} byte per-page limit.` };
+    return { id: storyId, title, url: location.href, html, frameUrl: location.href, frameTitle: document.title, rootSelector: selector, performanceResources };
+  } catch (error) {
+    return { captureError: String(error?.message || error) };
+  }
 }
 
 async function persistOfflineJob() {
@@ -914,11 +931,15 @@ function offlineCurrentState() {
 async function offlineCapturePage(tabId, entry, sourceUrl, isCurrent) {
   const target = isCurrent ? sourceUrl : buildEntryUrl(sourceUrl, entry.id, entry.type);
   if (!isCurrent) await navigateTab(tabId, target);
-  const ready = await waitForEntryReady(tabId, entry, () => Boolean(offlineJob?.cancelRequested));
-  const result = await chrome.scripting.executeScript({ target: { tabId, frameIds: [ready.frameId] }, func: captureOfflinePage, args: [entry.id, entry.type] });
-  const page = result[0]?.result;
-  if (!page?.html || page.id !== entry.id) throw new Error(`No verified rendered HTML snapshot was captured for ${entry.id}.`);
-  return { ...page, status: 'SCANNED', readiness: { frameId: ready.frameId, id: ready.id, rootSelector: ready.matchedRootSelector, textLength: ready.length } };
+  const ready = await waitForEntryReady(tabId, entry, () => Boolean(offlineJob?.cancelRequested), async (frame) => {
+    const target = frame.documentId ? { tabId, documentIds: [frame.documentId] } : { tabId, frameIds: [frame.frameId] };
+    const results = await chrome.scripting.executeScript({
+      target, func: captureOfflinePage,
+      args: [entry.id, entry.type, frame.matchedRootSelector, StorybookOffline.MAX_PAGE_BYTES],
+    });
+    return results.find((result) => result.frameId === frame.frameId)?.result;
+  });
+  return { ...ready.page, status: 'SCANNED', readiness: { frameId: ready.frameId, id: ready.id, rootSelector: ready.matchedRootSelector, textLength: ready.length } };
 }
 async function downloadOfflineArchive(files, filename) {
   const url = await createZipUrl(files, offlineJob.id);
