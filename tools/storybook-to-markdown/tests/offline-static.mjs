@@ -227,8 +227,8 @@ const offscreenSource = await readFile(new URL('../offscreen.js', import.meta.ur
 const urls = new Map(); const listenersZip = [];
 const offscreenContext = vm.createContext({ chrome: { runtime: { onMessage: { addListener: (listener) => listenersZip.push(listener) } } }, TextEncoder, Uint8Array, Uint32Array, DataView, Blob, ArrayBuffer, URL: { createObjectURL: (blob) => { const key = `blob:offline-${urls.size}`; urls.set(key, blob); return key; }, revokeObjectURL: (url) => urls.delete(url) }, Set });
 vm.runInContext(offscreenSource, offscreenContext);
-let zipResponse;
-listenersZip[0]({ action: 'MAKE_ZIP', files: integrated.files }, {}, (response) => { zipResponse = response; });
+offscreenContext.archiveFiles = integrated.files;
+const zipResponse = vm.runInContext('createArchiveUrl(archiveFiles)', offscreenContext);
 assert(zipResponse.ok, 'binary files are accepted by the ZIP writer');
 const archive = new Uint8Array(await urls.get(zipResponse.url).arrayBuffer());
 const view = new DataView(archive.buffer); const zipNames = []; let cursor = 0;

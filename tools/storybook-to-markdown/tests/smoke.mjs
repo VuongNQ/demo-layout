@@ -90,6 +90,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
           transaction: (_storeName, _mode) => {
             const tx = { objectStore: () => ({
               put: (record) => { indexedDbRecords.set(record.key, record); const result = { result: record }; setTimeout(() => tx.oncomplete?.(), 0); return result; },
+              delete: (key) => { indexedDbRecords.delete(key); setTimeout(() => tx.oncomplete?.(), 0); },
               get: (key) => { const result = {}; setTimeout(() => { result.result = indexedDbRecords.get(key); result.onsuccess?.(); }, 0); return result; },
               openCursor: () => { const cursorRequest = {}; setTimeout(() => { const records = [...indexedDbRecords.entries()]; let cursorIndex = 0; const advance = () => { const pair = records[cursorIndex]; cursorRequest.result = pair ? { value: pair[1], delete: () => indexedDbRecords.delete(pair[0]), continue: () => { cursorIndex++; setTimeout(advance, 0); } } : null; cursorRequest.onsuccess?.(); if (!pair) tx.oncomplete?.(); }; advance(); }, 0); return cursorRequest; },
             }) };
@@ -105,7 +106,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     const offscreenContext = vm.createContext({
       chrome: { runtime: { onMessage: { addListener: (listener) => offscreenListeners.push(listener) } } },
       URL: { createObjectURL: (blob) => { const url = `blob:offline-test-${++objectUrlSequence}`; objectUrls.set(url, blob); return url; }, revokeObjectURL: (url) => objectUrls.delete(url) },
-      TextEncoder, Uint8Array, Uint32Array, DataView, Blob, ArrayBuffer, Set,
+      TextEncoder, Uint8Array, Uint32Array, DataView, Blob, ArrayBuffer, Set, indexedDB,
     });
     vm.runInContext(await read('offscreen.js'), offscreenContext, { filename: 'offline-test-offscreen.js' });
   }
@@ -151,11 +152,13 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
       getManifest: () => structuredClone(manifest),
       sendMessage: async (message) => {
         if (message.action === 'MAKE_ZIP') {
-          filesByZip.push(message.files);
+          assert.match(message.archiveKey, /^zip:/);
+          assert(JSON.stringify(message).length < 256, 'ZIP runtime message contains only the staging key');
+          const { files } = indexedDbRecords.get(message.archiveKey);
+          filesByZip.push(files);
           if (!realZip) return { ok: true, url: `blob:mock-${filesByZip.length}` };
-          let response;
-          offscreenListeners[0](message, {}, (value) => { response = value; });
-          if (response?.ok) zipArchives.push({ files: message.files, blob: objectUrls.get(response.url) });
+          const response = await new Promise((resolve) => offscreenListeners[0](structuredClone(message), {}, resolve));
+          if (response?.ok) zipArchives.push({ files, blob: objectUrls.get(response.url) });
           return response;
         }
         if (message.action === 'REVOKE_URL' && realZip) { let response; offscreenListeners[0](message, {}, (value) => { response = value; }); return response; }
@@ -714,11 +717,11 @@ const offlineMissingRootHarness = await makeHarness({ delay: 3, realZip: true, r
 const offlineMissingRootResponse = await offlineMissingRootHarness.send({ action: 'EXPORT_OFFLINE', scope: 'current', authorizationConfirmed: true });
 assert.equal(offlineMissingRootResponse.ok, true, 'a failed page remains reportable in a generated Current Docs archive');
 assert.equal(offlineMissingRootResponse.job.pages.failed, 1);
-assert.equal(offlineMissingRootResponse.pages[0].status, 'FAILED', 'a missing Docs root is not marked STATIC_READY');
 const offlineFailedMembers = readZip(Buffer.from(await offlineMissingRootHarness.zipArchives[0].blob.arrayBuffer()));
 assert(!offlineFailedMembers.some((member) => /^pages\/.+\.html$/.test(member.path)));
 assert(offlineFailedMembers.some((member) => member.path === 'index.html' && new TextDecoder().decode(member.bytes).includes('failed')));
 assert(offlineFailedMembers.some((member) => member.path === 'OFFLINE_REPORT.md'));
+assert.equal(JSON.parse(new TextDecoder().decode(offlineFailedMembers.find((member) => member.path === 'manifest.json').bytes)).pages[0].status, 'FAILED');
 
 const offlineAllHarness = await makeHarness({ delay: 3, realZip: true });
 const offlineAllResponse = await offlineAllHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
@@ -741,7 +744,11 @@ const catalogEntries = [
 ];
 const catalogHarness = await makeHarness({
   entries: catalogEntries, realZip: true, offlineFixture: {
-    html: (id) => `<!doctype html><html><body><div id="storybook-root"><svg></svg><a href="/storybook/?path=/story/components-dialog--no-close-button#example">Example</a></div><h1>${id}</h1></body></html>`,
+    assets: new Map([
+      ['/large-a.png', { mime: 'image/png', body: new Uint8Array(3 * 1024 * 1024).fill(137) }],
+      ['/large-b.png', { mime: 'image/png', body: new Uint8Array(3 * 1024 * 1024).fill(200) }],
+    ]),
+    html: (id) => `<!doctype html><html><head><script src="/missing-runtime.js"></script></head><body><div id="storybook-root"><svg></svg><img src="/large-a.png"><img src="/large-b.png"><a href="/storybook/?path=/story/components-dialog--no-close-button#example">Example</a></div><h1>${id}</h1></body></html>`,
   },
 });
 catalogHarness.setSourceTab({ id: 1, url: 'https://storybook.test/storybook/?path=/story/components-dialog--default&args=variant:other', status: 'complete' });
@@ -750,7 +757,6 @@ assert.equal(catalogResponse.ok, true, catalogResponse.error);
 assert.equal(catalogResponse.job.pages.docs, 1);
 assert.equal(catalogResponse.job.pages.stories, 2);
 assert.equal(catalogResponse.job.pages.staticReady, 3);
-assert.equal(catalogResponse.pages.find(({ id }) => id.endsWith('--default')).frame.frameId, 3);
 assert.deepEqual(catalogHarness.navigationUrls.map((url) => new URL(url).searchParams.get('path')), [
   '/docs/components-dialog--docs', '/story/components-dialog--default', '/story/components-dialog--no-close-button',
 ]);
@@ -761,7 +767,14 @@ const catalogIndex = catalogFile('index.html');
 assert.match(catalogIndex, /components-dialog--default\.html">Default</);
 assert.match(catalogIndex, /components-dialog--no-close-button\.html">No Close Button</);
 assert.match(catalogFile('pages/components-dialog--docs.html'), /href="components-dialog--no-close-button\.html#example"/);
-assert.deepEqual(JSON.parse(catalogFile('manifest.json')).pages.map((page) => page.type), ['docs', 'story', 'story']);
+const catalogPages = JSON.parse(catalogFile('manifest.json')).pages;
+assert.deepEqual(catalogPages.map((page) => page.type), ['docs', 'story', 'story']);
+assert.equal(catalogPages.find(({ id }) => id.endsWith('--default')).frame.frameId, 3);
+assert(!catalogHarness.offlineRequestedUrls.some((url) => url.endsWith('/missing-runtime.js')));
+const catalogImages = catalogMembers.filter(({ path }) => path.startsWith('assets/images/') && path.endsWith('.png'));
+assert.equal(catalogImages.reduce((size, image) => size + image.bytes.byteLength, 0), 6 * 1024 * 1024);
+assert.deepEqual(catalogImages.map(({ bytes }) => bytes[0]).sort(), [137, 200]);
+assert.equal(catalogHarness.indexedDbRecordCount, 0, 'catalog cleans staged ZIP members and assets');
 assert.equal(catalogHarness.tabs.size, 0, 'catalog export closes its owned crawler tab');
 
 const offlineFixture = {
@@ -817,7 +830,6 @@ assert(!/<script\b/i.test(archivedPage), 'integrated offline pages do not execut
 assert(archivedPage.includes('../assets/images/') && archivedPage.includes('../assets/svg/'), 'integrated HTML references local image and SVG archive members');
 const archivedCss = offlineIntegratedMembers.find((member) => member.path.startsWith('assets/css/') && member.path.endsWith('.css'));
 assert(archivedCss && !new TextDecoder().decode(archivedCss.bytes).includes('https://storybook.test'), 'nested CSS dependencies are rewritten to local paths');
-assert(offlineIntegratedResponse.pages.every((page) => ['STATIC_READY', 'PARTIAL', 'FAILED'].includes(page.status)));
 assert(offlineIntegratedHarness.indexedDbRecordCount > 0, 'partial exports retain validated staged files for authorized retry');
 
 const slowOfflineFixture = { ...offlineFixture, assets: new Map([...offlineFixture.assets].map(([path, asset]) => [path, { ...asset, delay: 70 }])) };
@@ -880,8 +892,8 @@ const offscreen = vm.createContext({
   TextEncoder, Uint8Array, Uint32Array, DataView, Blob,
 });
 vm.runInContext(await read('offscreen.js'), offscreen, { filename: 'offscreen.js' });
-let zipResponse;
-offscreenListeners[0]({ action: 'MAKE_ZIP', files: archiveFiles }, {}, (response) => { zipResponse = response; });
+offscreen.archiveFiles = archiveFiles;
+const zipResponse = vm.runInContext('createArchiveUrl(archiveFiles)', offscreen);
 assert.equal(zipResponse.ok, true, zipResponse.error || 'The ZIP writer rejected the existing Storybook archive fixture.');
 const zip = new Uint8Array(await archiveBlob.arrayBuffer());
 const view = new DataView(zip.buffer);
@@ -964,8 +976,8 @@ try {
     independentOfflineZip = `unavailable (${offlineListing.error.code})`;
   }
 
-  let filenameZipResponse;
-  offscreenListeners[0]({ action: 'MAKE_ZIP', files: filenameExport.files }, {}, (response) => { filenameZipResponse = response; });
+  offscreen.filenameFiles = filenameExport.files;
+  const filenameZipResponse = vm.runInContext('createArchiveUrl(filenameFiles)', offscreen);
   assert.equal(filenameZipResponse.ok, true);
   const filenameZipPath = join(zipTestDir, 'filename-export.zip');
   await writeFile(filenameZipPath, Buffer.from(await archiveBlob.arrayBuffer()));

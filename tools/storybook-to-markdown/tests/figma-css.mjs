@@ -151,8 +151,8 @@ const context = vm.createContext({
   Set,
 });
 vm.runInContext(offscreenSource, context, { filename: 'offscreen.js' });
-let response;
-listeners.values().next().value({ action: 'MAKE_ZIP', files: archive.files }, {}, (value) => { response = value; });
+context.archiveFiles = archive.files;
+const response = vm.runInContext('createArchiveUrl(archiveFiles)', context);
 assert(response?.ok);
 const zipBytes = Buffer.from(await objectUrls.get(response.url).arrayBuffer());
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'figma-css-import-'));
@@ -171,8 +171,8 @@ try {
   assert.deepEqual(members, [...archivePaths].sort());
   assert(members.includes('manifest.json'));
 
-  let emptyUrlResponse;
-  listeners.values().next().value({ action: 'MAKE_ZIP', files: emptyUrlArchive.files }, {}, (value) => { emptyUrlResponse = value; });
+  context.emptyUrlFiles = emptyUrlArchive.files;
+  const emptyUrlResponse = vm.runInContext('createArchiveUrl(emptyUrlFiles)', context);
   assert(emptyUrlResponse?.ok, 'Figma CSS ZIP generation works with an empty optional URL');
   const emptyUrlZipPath = join(temporaryDirectory, 'empty-source-url.zip');
   await writeFile(emptyUrlZipPath, Buffer.from(await objectUrls.get(emptyUrlResponse.url).arrayBuffer()));

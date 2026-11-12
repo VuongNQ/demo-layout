@@ -92,16 +92,41 @@ function makeZip(files) {
   return new Blob([...localParts, ...centralParts, end], { type: 'application/zip' });
 }
 
+function readStagedArchive(key) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open('storybook-offline-assets-v1', 1);
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      try {
+        const request = db.transaction('assets', 'readonly').objectStore('assets').get(key);
+        request.onsuccess = () => {
+          const files = request.result?.files;
+          if (Array.isArray(files)) resolve(files);
+          else reject(new Error('Staged ZIP files are missing.'));
+        };
+        request.onerror = () => reject(request.error);
+      } catch (error) {
+        reject(error);
+      } finally {
+        db.close();
+      }
+    };
+  });
+}
+
+function createArchiveUrl(files) {
+  const url = URL.createObjectURL(makeZip(files));
+  objectUrls.add(url);
+  return { ok: true, url };
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.action === 'MAKE_ZIP') {
-    try {
-      const url = URL.createObjectURL(makeZip(message.files || []));
-      objectUrls.add(url);
-      sendResponse({ ok: true, url });
-    } catch (error) {
-      sendResponse({ ok: false, error: error.message || 'Could not build ZIP.' });
-    }
-    return false;
+    readStagedArchive(message.archiveKey)
+      .then(createArchiveUrl)
+      .then(sendResponse, (error) => sendResponse({ ok: false, error: error?.message || 'Could not build ZIP.' }));
+    return true;
   }
   if (message?.action === 'REVOKE_URL') {
     if (objectUrls.has(message.url)) {
