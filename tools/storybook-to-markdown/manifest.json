@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Storybook to Markdown",
-  "version": "0.3.1",
+  "version": "0.3.3",
   "description": "Export Storybook Docs as Markdown or Offline Static HTML, or import Figma Copy CSS as Markdown and ZIP.",
   "action": {
     "default_title": "Storybook to Markdown"

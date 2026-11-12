@@ -25,6 +25,10 @@ assert(offline.extractCssReferences('@import "nested.css"; @font-face{src:url(fo
 assert.deepEqual(offline.extractCssReferences('.hero{background-image:image-set("one.png" 1x, url("two.png") 2x)}').filter((x) => x.source === 'css-image-set').map((x) => x.url), ['one.png'], 'quoted CSS image-set candidates are discovered');
 assert.deepEqual(offline.extractJsReferences('import x from "./chunk.js"; import("./lazy.js"); import(path);').refs.map((x) => x.url), ['./chunk.js', './lazy.js']);
 assert.equal(offline.extractJsReferences('import(path);').dynamicImports, 1);
+const docsCodeSample = '<html><body><pre><code>npm install tailwindcss tw-animate-css\n@import "@hdss/ui/styles.css";\n@import "@hdss/ui/theme.css";\n@import "@hdss/ui/fonts.css";\nurl("illustration.png")\n&lt;img src="example.png"&gt;</code></pre></body></html>';
+assert.equal(offline.validateOfflineFiles([{ path: 'pages/guides-getting-started--docs.html', content: docsCodeSample }]).ok, true, 'Docs code examples are not archive dependencies');
+const missingLocalReferences = offline.validateOfflineFiles([{ path: 'pages/guide.html', content: '<html><head><link rel="stylesheet" href="../assets/css/missing.css"><style>.hero{background:url("../assets/images/missing.png")}</style></head><body><a href="other.html">Other</a></body></html>' }]);
+assert.equal(missingLocalReferences.missing.length, 3, 'real stylesheet, inline CSS and navigation references still require archive members');
 assert.equal(offline.pathFor({ resourceType: 'image', originalUrl: `${origin}/foo.png`, contentHash: 'a'.repeat(64) }), `assets/images/${'a'.repeat(64)}.png`);
 assert.equal(offline.sanitizeUrl(`${origin}/asset?token=secret`), `${origin}/asset?<redacted>`);
 const rewriteRegistry = offline.createRegistry(origin);
@@ -193,6 +197,8 @@ assert(!/<script\b/i.test(offlinePage), 'safe static mode strips scripts');
 assert(!/https:\/\/fixture\.internal\/(?:shared\.css|hero\.png)/.test(offlinePage), 'HTML resource references are localized');
 assert(offlinePage.includes('href="#props"'), 'local fragment navigation is preserved');
 assert(integrated.files.some((file) => file.path.startsWith('assets/css/')));
+const rewrittenSharedCss = new TextDecoder().decode(integrated.files.find((file) => file.path === integrated.registry.values().find((asset) => asset.originalUrl.endsWith('/shared.css')).localArchivePath).bytes);
+assert.match(rewrittenSharedCss, /@import "asset-\d+\.css";/, 'CSS imports remain valid local references after rewriting');
 const rewrittenNestedCss = new TextDecoder().decode(integrated.files.find((file) => file.path.startsWith('assets/css/') && file.path.endsWith('.css') && file.path !== integrated.registry.values().find((asset) => asset.originalUrl.endsWith('/shared.css')).localArchivePath)?.bytes || new Uint8Array());
 assert(rewrittenNestedCss.includes('image-set("../images/') && !rewrittenNestedCss.includes('./one.png'), 'CSS image-set strings are rewritten to local archive paths');
 assert(integrated.manifest.pages.every((page) => ['STATIC_READY', 'PARTIAL', 'FAILED'].includes(page.status)));
@@ -200,6 +206,10 @@ assert(integrated.localCheck.ok, 'all generated HTML and CSS local references re
 const inventoriedJs = integrated.files.find((file) => file.path.startsWith('assets/js/') && file.path.endsWith('.js'));
 assert(new TextDecoder().decode(inventoriedJs.bytes).includes('./') && !new TextDecoder().decode(inventoriedJs.bytes).includes('https://fixture.internal/chunk.js'), 'static JS module references are rewritten for inventory without execution');
 assert(integrated.registry.values().find((asset) => asset.resourceType === 'js').warnings.some((warning) => warning.includes('dynamic import')), 'unresolved runtime imports are reported');
+
+const codeSampleExport = await offline.buildOfflineSite([{ id: 'guides-getting-started--docs', title: 'Getting started', url: `${integratedOrigin}/?path=/docs/guides-getting-started--docs`, html: docsCodeSample }], { approvedOrigin: integratedOrigin, sourceUrl: integratedOrigin, fetchImpl: async () => { throw new Error('Docs examples must not trigger asset requests'); } });
+assert(codeSampleExport.localCheck.ok, 'Offline Static export accepts package names and CSS imports shown as Docs examples');
+assert.equal(codeSampleExport.registry.values().length, 0);
 
 const missingIntegrated = await offline.buildOfflineSite([{ id: 'missing--docs', title: 'Missing', url: `${integratedOrigin}/?path=/docs/missing--docs`, html: '<html><head><link rel="stylesheet" href="/absent.css"></head><body><h1>Missing dependency</h1></body></html>' }], { approvedOrigin: integratedOrigin, sourceUrl: integratedOrigin, fetchImpl: integratedFetch, concurrency: 3, maxResourceBytes: 1024, maxTotalBytes: 10000 });
 assert.equal(missingIntegrated.registry.values()[0].status, 'FAILED');

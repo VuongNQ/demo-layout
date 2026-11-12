@@ -222,13 +222,14 @@
       if (!members.has(decodeURIComponent(resolved))) missing.push(`${filePath} => ${resolved}`);
     };
     for (const file of files) {
-      if (/\.(?:png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|eot)$/i.test(file.path) || /\.m?js$/i.test(file.path)) continue;
+      if (!/\.(?:html|css|svg)$/i.test(file.path)) continue;
       const text = file.content ?? (file.bytes ? new TextDecoder().decode(file.bytes) : '');
-      for (const match of text.matchAll(/\b(?:src|href|poster|xlink:href)=(['"])(.*?)\1/gi)) checkRef(file.path, match[2]);
-      for (const match of text.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)) checkRef(file.path, match[2]);
-      for (const match of text.matchAll(/@import\s+(['"])(.*?)\1/gi)) checkRef(file.path, match[2]);
-      for (const match of text.matchAll(/srcset=(['"])(.*?)\1/gi)) for (const candidate of match[2].split(',')) checkRef(file.path, candidate.trim().split(/\s+/)[0]);
-      mapImageSetStrings(text, (reference) => { checkRef(file.path, reference); return reference; });
+      if (/\.css$/i.test(file.path)) {
+        for (const ref of extractCssReferences(text)) checkRef(file.path, ref.url);
+      } else {
+        for (const ref of extractHtmlReferences(text, `https://offline.invalid/${file.path}`)) checkRef(file.path, ref.url);
+        if (/\.html$/i.test(file.path)) for (const match of text.matchAll(/<a\b[^>]*\bhref\s*=\s*(['"])(.*?)\1/gi)) checkRef(file.path, decodeHtmlAttribute(match[2]));
+      }
     }
     return { ok: missing.length === 0, missing };
   }
@@ -298,7 +299,7 @@
       let text = mapImageSetStrings(decodeHtmlAttribute(css), (value) => /^(?:data:|#)/i.test(value) ? value : refPath(value));
       text = text.replace(/@import\s+(?:url\(\s*)?(['"]?)([^'";)\s]+)\1\s*\)?\s*;/gi, (_all, quote, value) => {
         const local = refPath(value);
-        return local ? `@import url("${local}");` : '/* remote or missing stylesheet import omitted */';
+        return local ? ['@import', `"${local}";`].join(' ') : '/* remote or missing stylesheet import omitted */';
       }).replace(/url\(\s*(['"]?)(.*?)\1\s*\)/gi, (_all, quote, value) => {
         if (/^(?:data:|#)/i.test(value)) return `url(${quote}${value}${quote})`;
         const local = refPath(value);
@@ -331,7 +332,7 @@
       const checked = canonicalize(ref, baseUrl, new URL(baseUrl).origin);
       const asset = checked.ok && registry.get(checked.url);
       let fragment = ''; try { fragment = new URL(ref, baseUrl).hash; } catch {}
-      return asset?.status === 'DOWNLOADED' ? `@import url("${relative(asset.localArchivePath)}${fragment}");` : '/* missing stylesheet import omitted */';
+      return asset?.status === 'DOWNLOADED' ? ['@import', `"${relative(asset.localArchivePath)}${fragment}";`].join(' ') : '/* missing stylesheet import omitted */';
     });
     output = output.replace(/url\(\s*(['"]?)(.*?)\1\s*\)/gi, (_all, quote, ref) => {
       if (/^(?:data:|#)/i.test(ref)) return `url(${quote}${ref}${quote})`;
