@@ -350,7 +350,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     }
     throw new Error(`Timed out waiting for Offline Static state. Last state: ${state.storybookOfflineExportJob?.state}`);
   }
-  return { send, waitFor, waitOfflineFor, state, tabs, extensionWindows, windowFocusCalls, actionClicks, clickAction: (tab) => [...actionClicks][0](tab), closeWindow: (id) => chrome.windows.remove(id), setSourceTab: (tab) => { sourceTab = tab; }, getSourceTab: () => sourceTab, filesByZip, zipArchives, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, offlineAssetCalls, offlineRequestedUrls, get indexedDbRecordCount() { return [...indexedDbRecords.values()].filter((record) => record.kind !== 'page-snapshot').length; }, get cachedPageCount() { return [...indexedDbRecords.values()].filter((record) => record.kind === 'page-snapshot').length; }, get offlineAssetPeak() { return offlineAssetPeak; }, get peakNavigations() { return peakNavigations; } };
+  return { send, waitFor, waitOfflineFor, state, tabs, extensionWindows, windowFocusCalls, actionClicks, clickAction: (tab) => [...actionClicks][0](tab), closeWindow: (id) => chrome.windows.remove(id), setSourceTab: (tab) => { sourceTab = tab; }, getSourceTab: () => sourceTab, filesByZip, zipArchives, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, offlineAssetCalls, offlineRequestedUrls, get indexedDbRecordCount() { return [...indexedDbRecords.values()].filter((record) => record.kind !== 'page-snapshot' && record.key !== 'zip:offline-completed').length; }, get cachedPageCount() { return [...indexedDbRecords.values()].filter((record) => record.kind === 'page-snapshot').length; }, get offlineAssetPeak() { return offlineAssetPeak; }, get peakNavigations() { return peakNavigations; } };
 }
 
 function defaultEntries() {
@@ -752,6 +752,7 @@ const catalogHarness = await makeHarness({
   },
 });
 catalogHarness.setSourceTab({ id: 1, url: 'https://storybook.test/storybook/?path=/story/components-dialog--default&args=variant:other', status: 'complete' });
+assert.equal((await catalogHarness.send({ action: 'DOWNLOAD_OFFLINE', jobId: 'unfinished' })).ok, false);
 const catalogResponse = await catalogHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });
 assert.equal(catalogResponse.ok, true, catalogResponse.error);
 assert.equal(catalogResponse.job.pages.docs, 1);
@@ -776,6 +777,24 @@ assert.equal(catalogImages.reduce((size, image) => size + image.bytes.byteLength
 assert.deepEqual(catalogImages.map(({ bytes }) => bytes[0]).sort(), [137, 200]);
 assert.equal(catalogHarness.indexedDbRecordCount, 0, 'catalog cleans staged ZIP members and assets');
 assert.equal(catalogHarness.tabs.size, 0, 'catalog export closes its owned crawler tab');
+
+assert.equal(catalogResponse.job.downloadAvailable, true);
+const staleDownload = await catalogHarness.send({ action: 'DOWNLOAD_OFFLINE', jobId: 'old-job' });
+assert.equal(staleDownload.ok, false, 'a stale job ID cannot download the current ZIP');
+const requestsBeforeDownload = catalogHarness.offlineRequestedUrls.length;
+const navigationsBeforeDownload = catalogHarness.navigationUrls.length;
+catalogHarness.setSourceTab({ id: 1, url: 'https://unrelated.test/', status: 'complete' });
+const redownload = await catalogHarness.send({ action: 'DOWNLOAD_OFFLINE', jobId: catalogResponse.job.id });
+assert.equal(redownload.ok, true, redownload.error);
+assert.equal(redownload.filename, catalogResponse.filename);
+assert.equal(catalogHarness.downloadRequests.length, 2);
+assert.equal(catalogHarness.offlineRequestedUrls.length, requestsBeforeDownload);
+assert.equal(catalogHarness.navigationUrls.length, navigationsBeforeDownload);
+assert.deepEqual(
+  Buffer.from(await catalogHarness.zipArchives[1].blob.arrayBuffer()),
+  Buffer.from(await catalogHarness.zipArchives[0].blob.arrayBuffer()),
+  'the saved ZIP downloads again byte-for-byte without crawling or requesting assets',
+);
 
 const pageCacheHarness = await makeHarness({ entries: catalogEntries, realZip: true });
 const exportCatalog = () => pageCacheHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });

@@ -2,6 +2,7 @@ importScripts('extractor.js', 'offline-static.js');
 
 const JOB_KEY = 'storybookExportJob';
 const OFFLINE_JOB_KEY = 'storybookOfflineExportJob';
+const OFFLINE_DOWNLOAD_KEY = 'zip:offline-completed';
 const WINDOW_CONTEXT_KEY = 'storybookToolWindowContext';
 const MAX_PAGES = 120;
 const NAVIGATION_TIMEOUT_MS = 20000;
@@ -15,6 +16,7 @@ let figmaCssExportActive = false;
 let offlineJob = null;
 let offlineRunner = null;
 let offlineStarting = false;
+let offlineRedownloading = false;
 let offlineAbortController = null;
 let offlinePersistQueue = Promise.resolve();
 let offlineProgressTimer = null;
@@ -663,7 +665,7 @@ function renderTable(rows) {
 function md(value) { return String(value ?? '').replace(/([\\`*_{}\[\]<>])/g, '\\$1').trim(); }
 function cell(value) { return String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim(); }
 
-async function createZipUrl(files) {
+async function openStagedZipUrl(archiveKey, jobId) {
   // The ZIP writer is pure JavaScript, but URL.createObjectURL is unavailable in extension service workers.
   // Keep the Blob/object-URL step in this bundled offscreen document for the downloads API handoff.
   let exists = false;
@@ -675,19 +677,25 @@ async function createZipUrl(files) {
     exists = clientsList.some((client) => client.url === chrome.runtime.getURL('offscreen.html'));
   }
   if (!exists) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['BLOBS'], justification: 'Package user-requested local export files into one ZIP download.' });
-  const archiveKey = `zip:${crypto.randomUUID()}`;
+  const response = await chrome.runtime.sendMessage({ action: 'MAKE_ZIP', archiveKey, jobId });
+  if (!response?.ok) throw new Error(response?.error || 'ZIP packaging failed.');
+  return response.url;
+}
+
+async function createZipUrl(files, jobId) {
+  const archiveKey = jobId ? OFFLINE_DOWNLOAD_KEY : `zip:${crypto.randomUUID()}`;
+  let retained = false;
   try {
-    // Chrome serializes extension messages as JSON. Structured cloning in IndexedDB
-    // preserves binary members without expanding the archive into a runtime message.
-    await withOfflineStore('readwrite', (store) => store.put({ key: archiveKey, files, updatedAt: now() }));
-    const response = await chrome.runtime.sendMessage({ action: 'MAKE_ZIP', archiveKey });
-    if (!response?.ok) throw new Error(response?.error || 'ZIP packaging failed.');
-    return response.url;
+    // IndexedDB preserves binary members without expanding them into a runtime message.
+    await withOfflineStore('readwrite', (store) => store.put({ key: archiveKey, files, jobId, updatedAt: now() }));
+    const url = await openStagedZipUrl(archiveKey, jobId);
+    retained = Boolean(jobId);
+    return url;
   } catch (error) {
     await closeOffscreenDocument();
     throw error;
   } finally {
-    await withOfflineStore('readwrite', (store) => store.delete(archiveKey)).catch(() => {});
+    if (!retained) await withOfflineStore('readwrite', (store) => store.delete(archiveKey)).catch(() => {});
   }
 }
 
@@ -913,7 +921,8 @@ async function offlineCapturePage(tabId, entry, sourceUrl, isCurrent) {
   return { ...page, status: 'SCANNED', readiness: { frameId: ready.frameId, id: ready.id, rootSelector: ready.matchedRootSelector, textLength: ready.length } };
 }
 async function downloadOfflineArchive(files, filename) {
-  const url = await createZipUrl(files);
+  const url = await createZipUrl(files, offlineJob.id);
+  let downloaded = false;
   try {
     if (offlineJob?.cancelRequested) throw new Error('Offline export cancelled before archive download.');
     const downloadId = await chrome.downloads.download({ url, filename, saveAs: true, conflictAction: 'uniquify' });
@@ -922,12 +931,43 @@ async function downloadOfflineArchive(files, filename) {
     offlineJob.downloadId = null;
     if (offlineJob.cancelRequested) throw new Error('Offline export cancelled.');
     if (state !== 'complete') throw new Error('The offline archive download was interrupted.');
-    return filename;
-  } finally { await releaseArchiveUrl(url); }
+    downloaded = true;
+  } finally {
+    await releaseArchiveUrl(url);
+    if (!downloaded) await withOfflineStore('readwrite', (store) => store.delete(OFFLINE_DOWNLOAD_KEY)).catch(() => {});
+  }
 }
+
+async function redownloadOffline(jobId) {
+  if (offlineRedownloading) throw new Error('An Offline Static download is already active.');
+  offlineRedownloading = true;
+  let url;
+  try {
+    const completed = await getOfflineJob();
+    if (completed.state !== 'completed' || !completed.downloadAvailable || completed.id !== jobId) {
+      throw new Error('There is no saved ZIP for this completed export.');
+    }
+    await loadJob();
+    if (offlineStarting || offlineRunner || figmaCssExportActive || runner || ['discovering', 'crawling', 'processing', 'compressing'].includes(job?.state)) {
+      throw new Error('Wait for the active export to finish before downloading this ZIP.');
+    }
+    url = await openStagedZipUrl(OFFLINE_DOWNLOAD_KEY, completed.id).catch(async (error) => {
+      await closeOffscreenDocument();
+      throw error;
+    });
+    const filename = completed.filename;
+    const downloadId = await chrome.downloads.download({ url, filename, saveAs: true, conflictAction: 'uniquify' });
+    if (await waitForDownload(downloadId, url) !== 'complete') throw new Error('The offline archive download was interrupted.');
+    return { ok: true, filename };
+  } finally {
+    if (url) await releaseArchiveUrl(url);
+    offlineRedownloading = false;
+  }
+}
+
 async function exportOffline(message) {
   if (message.authorizationConfirmed !== true) throw new Error('The user must explicitly confirm organizational authorization before Offline Static export.');
-  if (offlineRunner || offlineStarting) return { ok: false, error: 'An Offline Static export is already active.' };
+  if (offlineRunner || offlineStarting || offlineRedownloading) return { ok: false, error: 'An Offline Static export is already active.' };
   offlineStarting = true;
   let source;
   let sourceOrigin;
@@ -944,7 +984,7 @@ async function exportOffline(message) {
     await cleanupOfflineStaging('', now() - OFFLINE_CACHE_TTL_MS).catch(() => {});
     id = new URL(source.tabUrl).searchParams.get('path')?.match(/^\/docs\/(.+)$/)?.[1] || new URL(source.tabUrl).searchParams.get('id') || '';
     if (scope === 'current' && !id) throw new Error('The source tab does not identify the current Storybook Docs entry.');
-    offlineJob = { id: `offline-${now()}`, kind: 'offline-static', scope, sourceUrl: StorybookOffline.sanitizeUrl(source.tabUrl), origin: sourceOrigin, state: 'discovering', phaseCode: 'DISCOVERING_PAGES', phase: 'Discovering Storybook pages', startedAt: now(), pages: { discovered: scope === 'current' ? 1 : 0, selected: scope === 'current' ? 1 : 0, scanning: 0, scanned: 0, reused: 0, staticReady: 0, partial: 0, failed: 0 }, assets: { discovered: 0, queued: 0, downloading: 0, downloaded: 0, failed: 0, skipped: 0, deduplicated: 0, downloadedBytes: 0 }, snapshotBytes: 0, currentPage: '', currentAsset: '', warnings: [], percent: 1, ownedTabId: null };
+    offlineJob = { id: `offline-${crypto.randomUUID()}`, kind: 'offline-static', scope, sourceUrl: StorybookOffline.sanitizeUrl(source.tabUrl), origin: sourceOrigin, state: 'discovering', phaseCode: 'DISCOVERING_PAGES', phase: 'Discovering Storybook pages', startedAt: now(), pages: { discovered: scope === 'current' ? 1 : 0, selected: scope === 'current' ? 1 : 0, scanning: 0, scanned: 0, reused: 0, staticReady: 0, partial: 0, failed: 0 }, assets: { discovered: 0, queued: 0, downloading: 0, downloaded: 0, failed: 0, skipped: 0, deduplicated: 0, downloadedBytes: 0 }, snapshotBytes: 0, currentPage: '', currentAsset: '', warnings: [], percent: 1, ownedTabId: null };
     await notifyOfflineJob();
   } catch (error) {
     offlineStarting = false;
@@ -1085,7 +1125,7 @@ async function exportOffline(message) {
       const retryableFailures = assetEntries.some((asset) => asset.status === 'FAILED') || result.pageResults.some((page) => page.status === 'FAILED');
       if (retryableFailures) offlineJob.warnings.push('Validated staged assets were retained so an authorized retry can reuse them.');
       else await cleanupOfflineStaging(sourceOrigin).catch((error) => { offlineJob.warnings.push(`Temporary asset cleanup failed: ${offlineSafeError(error)}`); });
-      offlineJob.state = 'completed'; offlineJob.phaseCode = 'COMPLETED'; offlineJob.phase = `Downloaded ${filename}`; offlineJob.filename = filename; offlineJob.percent = 100; offlineJob.completedAt = now();
+      offlineJob.state = 'completed'; offlineJob.phaseCode = 'COMPLETED'; offlineJob.phase = `Downloaded ${filename}`; offlineJob.filename = filename; offlineJob.downloadAvailable = true; offlineJob.percent = 100; offlineJob.completedAt = now();
       return { ok: true, filename, job: clone(offlineJob) };
     } catch (error) {
       offlineJob.state = offlineJob.cancelRequested ? 'cancelled' : 'failed'; offlineJob.phaseCode = offlineJob.state === 'cancelled' ? 'CANCELLED' : 'FAILED'; offlineJob.phase = offlineJob.state === 'cancelled' ? 'Cancelled' : 'Offline export failed'; offlineJob.lastError = offlineSafeError(error); offlineJob.completedAt = now();
@@ -1131,7 +1171,7 @@ function validateFigmaCssArchive(files, filename) {
 
 async function downloadFigmaCss(message) {
   await loadJob();
-  if (figmaCssExportActive || currentExport || offlineRunner || offlineStarting) return { ok: false, error: 'Another extension export is already running.' };
+  if (figmaCssExportActive || currentExport || offlineRunner || offlineStarting || offlineRedownloading) return { ok: false, error: 'Another extension export is already running.' };
   if (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) return { ok: false, error: 'Finish or pause the active Storybook export before creating a Figma CSS ZIP.' };
   validateFigmaCssArchive(message.files, message.filename);
   figmaCssExportActive = true;
@@ -1261,12 +1301,13 @@ async function scheduleRunner() {
 async function startAll(message) {
   const source = await sourceTabContext();
   await loadJob();
-  if (offlineRunner || offlineStarting) return { ok: false, error: 'Wait for the active Offline Static export to finish.' };
+  if (offlineRunner || offlineStarting || offlineRedownloading) return { ok: false, error: 'Wait for the active Offline Static export to finish.' };
   if (figmaCssExportActive) return { ok: false, error: 'Wait for the Figma CSS ZIP export to finish before starting a Storybook crawl.' };
   if (currentExport) return { ok: false, error: 'A Current Docs export is already running.' };
   if (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) return { ok: true, duplicate: true, job: progressState() };
   if (job && job.state === 'paused') return { ok: false, error: 'Resume or cancel the paused job before starting another export.' };
   const previousCleanup = await closeWorkerTabs();
+  if (offlineRedownloading) return { ok: false, error: 'Wait for the Offline Static download to finish.' };
   if (!previousCleanup.ok) return { ok: false, error: `Close or retry cleanup for temporary tabs ${previousCleanup.remaining.join(', ')} first.` };
   job = {
     id: `job-${now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1283,6 +1324,7 @@ async function startAll(message) {
 
 async function resumeJob() {
   await loadJob();
+  if (offlineRedownloading) return { ok: false, error: 'Wait for the Offline Static download to finish.' };
   if (figmaCssExportActive) return { ok: false, error: 'Wait for the Figma CSS ZIP export to finish before resuming the Storybook crawl.' };
   if (!job) return { ok: false, error: 'There is no saved export to resume.' };
   if (['discovering', 'crawling', 'processing', 'compressing'].includes(job.state)) {
@@ -1299,6 +1341,7 @@ async function resumeJob() {
   if (!['paused', 'failed', 'cancelled', 'completed'].includes(job.state)) return { ok: false, error: 'This job is not resumable.' };
   if (job.state === 'completed' && !job.entries.some((entry) => entry.status === 'failed')) return { ok: false, error: 'There are no failed pages to retry.' };
   const cleanup = await closeWorkerTabs();
+  if (offlineRedownloading) return { ok: false, error: 'Wait for the Offline Static download to finish.' };
   if (!cleanup.ok) return { ok: false, error: `Cannot resume until temporary tabs close: ${cleanup.remaining.join(', ')}` };
   for (const entry of job.entries) {
     if (entry.status === 'failed' || job.state === 'completed' && entry.status === 'succeeded' && !entry.page) entry.status = 'queued';
@@ -1344,6 +1387,7 @@ async function controlJob(action, id) {
   if (action === 'RETRY_ENTRY') {
     if (runner && !['paused', 'failed', 'completed', 'cancelled'].includes(job.state)) return { ok: false, error: 'Wait for the active crawl to pause or finish before retrying a page.' };
     const cleanup = await closeWorkerTabs();
+    if (offlineRedownloading) return { ok: false, error: 'Wait for the Offline Static download to finish.' };
     if (!cleanup.ok) return { ok: false, error: `Cannot retry until temporary tabs close: ${cleanup.remaining.join(', ')}` };
     const entry = job.entries.find((candidate) => candidate.id === id);
     if (!entry || entry.status !== 'failed') return { ok: false, error: 'Only a failed Docs entry can be retried.' };
@@ -1419,6 +1463,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (['PAUSE', 'CANCEL', 'RETRY_ENTRY'].includes(message?.action)) return controlJob(message.action, message.id);
     if (message?.action === 'EXPORT_FIGMA_CSS') return downloadFigmaCss(message);
     if (message?.action === 'EXPORT_OFFLINE') return exportOffline(message);
+    if (message?.action === 'DOWNLOAD_OFFLINE') return redownloadOffline(message.jobId);
     if (message?.action === 'OFFLINE_CONTROL') {
       if (!offlineJob) return { ok: false, error: 'No Offline Static job is available.' };
       if (message.control === 'PAUSE' && offlineRunner) { offlineJob.pauseRequested = true; offlineJob.state = 'pausing'; offlineJob.phaseCode = 'PAUSING'; offlineJob.phase = 'Stopping new pages and assets'; await notifyOfflineJob(); return { ok: true, job: clone(offlineJob) }; }

@@ -11,6 +11,7 @@ let removeFailure = null;
 let offlineAction = null;
 let offlineReads = 0;
 let offlineControlAction = null;
+let offlineDownloadAction = null;
 const offlineJobListeners = [];
 let savedOfflineJob = { state: 'paused', phaseCode: 'PAUSED', phase: 'Paused after request', scope: 'all', sourceUrl: 'https://storybook.example/storybook/', pages: { selected: 3, scanned: 2, staticReady: 1, partial: 1, failed: 0 }, assets: { discovered: 5, downloaded: 4, failed: 1, skipped: 0, deduplicated: 2, downloadedBytes: 2048 }, percent: 45 };
 const elements = new Map();
@@ -61,6 +62,7 @@ const chrome = {
       else if (message.action === 'GET_OFFLINE_JOB') { offlineReads++; callback({ ok: true, job: savedOfflineJob }); }
       else if (message.action === 'GET_SOURCE_TAB') callback({ ok: true, tabUrl: 'https://storybook.example/storybook/?path=/docs/button--docs' });
       else if (message.action === 'EXPORT_OFFLINE') { offlineAction = message; callback({ ok: true, filename: 'storybook-offline-current.zip', job: { state: 'completed', scope: message.scope, sourceUrl: 'https://storybook.example/storybook/', filename: 'storybook-offline-current.zip', pages: { selected: 1, scanned: 1 }, assets: {} } }); }
+      else if (message.action === 'DOWNLOAD_OFFLINE') { offlineDownloadAction = message; callback({ ok: true, filename: 'storybook-offline-current.zip' }); }
       else if (message.action === 'OFFLINE_CONTROL') { offlineControlAction = message; callback({ ok: true, job: { state: 'completed', scope: 'all', pages: { selected: 2, scanned: 2 }, assets: { failed: 1 } } }); }
       else if (message.action === 'EXPORT_CURRENT') callback(failCurrentExport ? { ok: false, error: 'Current Docs mock failure' } : { ok: true, filename: 'current.md', preview: '# Storybook result' });
       else if (message.action === 'EXPORT_FIGMA_CSS') callback({ ok: true, filename: 'figma-css-demo.zip' });
@@ -88,6 +90,7 @@ assert.equal(offlineReads, 1, 'popup startup restores the persisted Offline Stat
 assert.equal(elements.get('offline-job-panel').hidden, false, 'a reopened Storybook tab displays saved Offline Static progress');
 assert.equal(elements.get('offline-state-pill').textContent, 'paused');
 assert.equal(elements.get('offline-resume').hidden, false, 'a reopened paused job exposes Resume');
+assert.equal(elements.get('offline-download').hidden, true, 'an unfinished job cannot download a ZIP');
 assert.match(elements.get('offline-counts').textContent, /1 static-ready · 1 partial/);
 offlineJobListeners.forEach((listener) => listener({ action: 'OFFLINE_JOB_UPDATED', job: { state: 'idle' } }));
 assert.equal(elements.get('offline-job-panel').hidden, true, 'idle Offline Static state remains isolated from other export modes');
@@ -148,6 +151,12 @@ assert.deepEqual(offlineAction && [offlineAction.scope, offlineAction.authorizat
 assert.match(elements.get('storybook-message').textContent, /Downloaded storybook-offline-current.zip/);
 offlineJobListeners.forEach((listener) => listener({ action: 'OFFLINE_JOB_UPDATED', job: { state: 'completed', scope: 'all', pages: { selected: 2, scanned: 2, partial: 1 }, assets: { failed: 1 } } }));
 assert.equal(elements.get('offline-retry').hidden, false, 'completed partial exports expose a retry control');
+assert.equal(elements.get('offline-download').hidden, true, 'a completed job without a retained archive hides Download ZIP');
+offlineJobListeners.forEach((listener) => listener({ action: 'OFFLINE_JOB_UPDATED', job: { id: 'offline-saved', state: 'completed', downloadAvailable: true, pages: { partial: 1 } } }));
+assert.equal(elements.get('offline-download').hidden, false, 'a completed export with an archive exposes Download ZIP');
+await elements.get('offline-download').dispatch('click');
+assert.equal(offlineDownloadAction?.jobId, 'offline-saved');
+assert.match(elements.get('storybook-message').textContent, /Downloaded storybook-offline-current.zip/);
 elements.get('offline-authorized').checked = false;
 await elements.get('offline-retry').dispatch('click');
 assert.match(elements.get('storybook-message').textContent, /Confirm that organizational policy permits/);

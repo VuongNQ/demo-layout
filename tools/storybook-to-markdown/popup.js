@@ -34,6 +34,7 @@ function renderOffline(job) {
   const active = hasJob && !['completed', 'failed', 'cancelled'].includes(job.state);
   byId('offline-job-panel').hidden = !hasJob || activeImportMode !== 'storybook';
   byId('new-export').hidden = activeImportMode === 'figma' || active || Boolean(currentJob && !['idle', 'completed', 'cancelled', 'failed'].includes(currentJob.state));
+  byId('offline-download').hidden = job?.state !== 'completed' || !job.downloadAvailable;
   if (!hasJob) return;
   byId('offline-state-pill').textContent = job.state;
   byId('offline-state-pill').className = `state-pill ${job.state}`;
@@ -71,6 +72,20 @@ byId('offline-pause').addEventListener('click', () => offlineControl('PAUSE'));
 byId('offline-resume').addEventListener('click', () => offlineControl('RESUME'));
 byId('offline-cancel').addEventListener('click', () => offlineControl('CANCEL'));
 byId('offline-retry').addEventListener('click', () => offlineControl('RETRY'));
+
+byId('offline-download').addEventListener('click', async () => {
+  const button = byId('offline-download');
+  button.disabled = true;
+  storybookMessage.textContent = 'Preparing saved ZIP…';
+  try {
+    const response = await send({ action: 'DOWNLOAD_OFFLINE', jobId: currentOfflineJob?.id });
+    storybookMessage.textContent = `Downloaded ${response.filename}.`;
+  } catch (error) {
+    storybookMessage.textContent = `Error: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});
 
 function send(message) {
   return new Promise((resolve, reject) => {
