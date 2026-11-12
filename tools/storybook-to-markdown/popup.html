@@ -21,13 +21,23 @@
       <p id="idle-status" role="status" aria-live="polite">Idle · ready to export.</p>
       <section id="new-export" aria-labelledby="export-heading">
         <h2 id="export-heading">New export</h2>
-        <label class="option"><input type="radio" name="scope" value="current" checked> Current Docs page (.md)</label>
-        <label class="option"><input type="radio" name="scope" value="all"> All discoverable Docs (.zip)</label>
-        <fieldset>
+        <fieldset id="format-options"><legend>Format</legend>
+          <label class="option"><input id="format-markdown" type="radio" name="format" value="markdown" checked> Markdown</label>
+          <label class="option"><input id="format-offline" type="radio" name="format" value="offline"> Offline Static</label>
+        </fieldset>
+        <fieldset id="scope-options"><legend>Scope</legend>
+          <label class="option"><input type="radio" name="scope" value="current" checked> Current Docs</label>
+          <label class="option"><input type="radio" name="scope" value="all"> All Docs</label>
+        </fieldset>
+        <fieldset id="markdown-options">
           <legend>Include</legend>
           <label class="option"><input id="props" type="checkbox" checked> Props, variants & tables</label>
           <label class="option"><input id="tokens" type="checkbox" checked> Observed token values</label>
           <label class="option"><input id="examples" type="checkbox" checked> Examples & guidelines</label>
+        </fieldset>
+        <fieldset id="offline-authorization" hidden><legend>Authorization</legend>
+          <p class="field-help">The archive may contain internal company documentation. Confirm that your organization permits this export and its intended local storage or transfer. This confirmation records your attestation; it does not verify organizational policy. Only the selected Storybook origin is eligible for static asset requests.</p>
+          <label class="option"><input id="offline-authorized" type="checkbox"> I confirm organizational policy permits this selected export and its intended storage or transfer.</label>
         </fieldset>
         <button id="start">Extract & download</button>
         <details id="current-preview" hidden><summary>Current Docs Markdown preview</summary><pre id="preview">No export yet.</pre></details>
@@ -44,6 +54,14 @@
         <button id="retry-all" class="secondary full" hidden>Retry failed pages</button>
         <div id="pages" class="pages" aria-label="Docs page outcomes"></div>
         <button id="new-after-terminal" class="secondary full" hidden>Start another export</button>
+      </section>
+      <section id="offline-job-panel" aria-labelledby="offline-job-heading" hidden>
+        <div class="job-title"><h2 id="offline-job-heading">Offline Static progress</h2><span id="offline-state-pill" class="state-pill">Idle</span></div>
+        <div id="offline-live-status" role="status" aria-live="polite" aria-atomic="true">No Offline Static export.</div>
+        <progress id="offline-progress" max="100" value="0" aria-label="Offline export progress"></progress>
+        <p id="offline-source" class="muted"></p><p id="offline-counts" class="counts"></p><p id="offline-current" class="current-page"></p>
+        <div class="controls"><button id="offline-pause" class="secondary" type="button">Pause</button><button id="offline-resume" class="secondary" type="button">Resume</button><button id="offline-cancel" class="danger" type="button">Cancel</button></div>
+        <button id="offline-retry" class="secondary full" type="button" hidden>Retry failed export</button>
       </section>
       <p id="storybook-message" role="status" aria-live="polite"></p>
     </section>

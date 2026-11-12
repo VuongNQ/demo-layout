@@ -1,5 +1,6 @@
 const objectUrls = new Set();
 const encoder = new TextEncoder();
+const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const crcTable = (() => {
   const table = new Uint32Array(256);
   for (let index = 0; index < 256; index++) {
@@ -21,9 +22,19 @@ function makeZip(files) {
   const localParts = [];
   const centralParts = [];
   let offset = 0;
+  let totalUncompressed = 0;
+  const paths = new Set();
   for (const file of files) {
+    const isDirectory = typeof file?.path === 'string' && file.path.endsWith('/');
+    const memberParts = typeof file?.path === 'string' ? file.path.split('/') : [];
+    if (isDirectory) memberParts.pop();
+    if (!file || typeof file.path !== 'string' || !file.path || file.path.startsWith('/') || file.path.includes('\\') || memberParts.some((part) => !part || part === '.' || part === '..')) throw new Error('ZIP contains an unsafe member path.');
+    if (paths.has(file.path)) throw new Error(`ZIP contains a duplicate member path: ${file.path}`);
+    paths.add(file.path);
     const name = encoder.encode(file.path);
-    const data = encoder.encode(file.content);
+    const data = ArrayBuffer.isView(file.bytes) ? new Uint8Array(file.bytes.buffer, file.bytes.byteOffset, file.bytes.byteLength) : file.bytes instanceof ArrayBuffer ? new Uint8Array(file.bytes) : Array.isArray(file.bytes) ? Uint8Array.from(file.bytes) : encoder.encode(String(file.content ?? ''));
+    totalUncompressed += data.byteLength;
+    if (totalUncompressed > MAX_ARCHIVE_BYTES) throw new Error(`ZIP exceeds the ${Math.floor(MAX_ARCHIVE_BYTES / 1024 / 1024)} MiB uncompressed archive limit.`);
     if (data.length > 0xffffffff || offset > 0xffffffff) throw new Error('ZIP exceeds the supported 4 GiB archive limit.');
     const checksum = crc32(data);
     const local = new Uint8Array(30 + name.length);
@@ -77,6 +88,7 @@ function makeZip(files) {
   endView.setUint32(12, centralSize, true);
   endView.setUint32(16, offset, true);
   endView.setUint16(20, 0, true);
+  if (offset + centralSize + end.byteLength > MAX_ARCHIVE_BYTES) throw new Error('ZIP exceeds the 64 MiB complete archive memory limit.');
   return new Blob([...localParts, ...centralParts, end], { type: 'application/zip' });
 }
 
