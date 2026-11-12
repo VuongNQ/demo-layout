@@ -42,7 +42,7 @@ function renderOffline(job) {
   byId('offline-source').textContent = `Source: ${job.sourceUrl || ''} · Scope: ${job.scope || ''}`;
   const p = job.pages || {}, a = job.assets || {};
   const discovered = job.scope === 'catalog' && p.docs !== undefined ? `${p.docs} Docs · ${p.stories} stories discovered. ` : '';
-  byId('offline-counts').textContent = `${discovered}Pages ${p.scanned || 0}/${p.selected || 0} scanned · ${p.staticReady || 0} static-ready · ${p.partial || 0} partial · ${p.failed || 0} failed. Assets ${a.downloaded || 0}/${a.discovered || 0} downloaded · ${a.failed || 0} failed · ${a.skipped || 0} skipped · ${a.deduplicated || 0} deduplicated · ${a.downloadedBytes || 0} bytes.`;
+  byId('offline-counts').textContent = `${discovered}Pages ${p.scanned || 0}/${p.selected || 0} available · ${p.reused || 0} from cache · ${p.staticReady || 0} static-ready · ${p.partial || 0} partial · ${p.failed || 0} failed. Assets ${a.downloaded || 0}/${a.discovered || 0} downloaded · ${a.failed || 0} failed · ${a.skipped || 0} skipped · ${a.deduplicated || 0} deduplicated · ${a.downloadedBytes || 0} bytes.`;
   byId('offline-current').textContent = [job.currentPage && `Page: ${job.currentPage}`, job.currentAsset && `Asset: ${job.currentAsset}`, job.filename && `Downloaded: ${job.filename}`, ...(job.warnings || [])].filter(Boolean).join(' · ');
   byId('offline-pause').hidden = !['discovering', 'scanning', 'discovering-assets', 'downloading-assets'].includes(job.state);
   byId('offline-resume').hidden = job.state !== 'paused';
