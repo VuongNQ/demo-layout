@@ -241,6 +241,11 @@
       || /\b(?:access[_-]?token|client[_-]?secret|api[_-]?key)\s*[:=]\s*["'][^"']{8,}["']/i.test(text)
       || /[?&](?:token|secret|password|authorization|session|api[_-]?key|auth|jwt|ticket|code)=/i.test(text);
   }
+  function canCacheSnapshot(page, target) {
+    const urls = [target, page.url, page.frameUrl, ...(page.performanceResources || []).map((resource) => resource.url)].filter(Boolean);
+    const passwordField = /<input\b[^>]*\btype\s*=\s*["']?password\b/i;
+    return !passwordField.test(page.html) && !containsCredentialContent(page.html) && urls.every((url) => sanitizeUrl(url) === url);
+  }
   function safeSnapshot(html) {
     return String(html)
       .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '<!-- Script removed for safe static preview. -->')
@@ -667,7 +672,7 @@
     return { run, download, get active() { return active; }, get downloadedBytes() { return downloadedBytes; }, get transferredBytes() { return transferredBytes; } };
   }
   function sanitizeUrl(reference) { try { const u = new URL(reference); if (SECRET_NAME.test(u.href) || [...u.searchParams.keys()].some((key) => SECRET_QUERY.test(key))) return `${u.origin}${u.pathname}?<redacted>`; u.username = ''; u.password = ''; return u.href; } catch { return ''; } }
-  const api = { CONCURRENCY, MAX_RESOURCE_BYTES, MAX_TOTAL_BYTES, MAX_PAGE_BYTES, MAX_PAGES_TOTAL_BYTES, createRegistry, canonicalize, classify, extractHtmlReferences, extractCssReferences, extractJsReferences, makeScheduler, pathFor, rewriteReferences, sanitizeUrl, buildOfflineSite, validateOfflineFiles };
+  const api = { CONCURRENCY, MAX_RESOURCE_BYTES, MAX_TOTAL_BYTES, MAX_PAGE_BYTES, MAX_PAGES_TOTAL_BYTES, createRegistry, canonicalize, classify, extractHtmlReferences, extractCssReferences, extractJsReferences, makeScheduler, pathFor, rewriteReferences, sanitizeUrl, canCacheSnapshot, buildOfflineSite, validateOfflineFiles };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.StorybookOffline = api;
 })(globalThis);

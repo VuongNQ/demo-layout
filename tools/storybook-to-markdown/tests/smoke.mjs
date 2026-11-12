@@ -91,7 +91,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
             const tx = { objectStore: () => ({
               put: (record) => { indexedDbRecords.set(record.key, record); const result = { result: record }; setTimeout(() => tx.oncomplete?.(), 0); return result; },
               delete: (key) => { indexedDbRecords.delete(key); setTimeout(() => tx.oncomplete?.(), 0); },
-              get: (key) => { const result = {}; setTimeout(() => { result.result = indexedDbRecords.get(key); result.onsuccess?.(); }, 0); return result; },
+              get: (key) => { const result = {}; setTimeout(() => { result.result = indexedDbRecords.get(key); result.onsuccess?.(); tx.oncomplete?.(); }, 0); return result; },
               openCursor: () => { const cursorRequest = {}; setTimeout(() => { const records = [...indexedDbRecords.entries()]; let cursorIndex = 0; const advance = () => { const pair = records[cursorIndex]; cursorRequest.result = pair ? { value: pair[1], delete: () => indexedDbRecords.delete(pair[0]), continue: () => { cursorIndex++; setTimeout(advance, 0); } } : null; cursorRequest.onsuccess?.(); if (!pair) tx.oncomplete?.(); }; advance(); }, 0); return cursorRequest; },
             }) };
             return tx;
@@ -350,7 +350,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     }
     throw new Error(`Timed out waiting for Offline Static state. Last state: ${state.storybookOfflineExportJob?.state}`);
   }
-  return { send, waitFor, waitOfflineFor, state, tabs, extensionWindows, windowFocusCalls, actionClicks, clickAction: (tab) => [...actionClicks][0](tab), closeWindow: (id) => chrome.windows.remove(id), setSourceTab: (tab) => { sourceTab = tab; }, getSourceTab: () => sourceTab, filesByZip, zipArchives, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, offlineAssetCalls, offlineRequestedUrls, get indexedDbRecordCount() { return indexedDbRecords.size; }, get offlineAssetPeak() { return offlineAssetPeak; }, get peakNavigations() { return peakNavigations; } };
+  return { send, waitFor, waitOfflineFor, state, tabs, extensionWindows, windowFocusCalls, actionClicks, clickAction: (tab) => [...actionClicks][0](tab), closeWindow: (id) => chrome.windows.remove(id), setSourceTab: (tab) => { sourceTab = tab; }, getSourceTab: () => sourceTab, filesByZip, zipArchives, downloadRequests, navigationUrls, navigationCompletionOrder, failedIds, attempts, extractionFrames, offlineAssetCalls, offlineRequestedUrls, get indexedDbRecordCount() { return [...indexedDbRecords.values()].filter((record) => record.kind !== 'page-snapshot').length; }, get cachedPageCount() { return [...indexedDbRecords.values()].filter((record) => record.kind === 'page-snapshot').length; }, get offlineAssetPeak() { return offlineAssetPeak; }, get peakNavigations() { return peakNavigations; } };
 }
 
 function defaultEntries() {
@@ -776,6 +776,32 @@ assert.equal(catalogImages.reduce((size, image) => size + image.bytes.byteLength
 assert.deepEqual(catalogImages.map(({ bytes }) => bytes[0]).sort(), [137, 200]);
 assert.equal(catalogHarness.indexedDbRecordCount, 0, 'catalog cleans staged ZIP members and assets');
 assert.equal(catalogHarness.tabs.size, 0, 'catalog export closes its owned crawler tab');
+
+const pageCacheHarness = await makeHarness({ entries: catalogEntries, realZip: true });
+const exportCatalog = () => pageCacheHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });
+const failedStory = 'components-dialog--no-close-button';
+pageCacheHarness.failedIds.add(failedStory);
+const firstCacheExport = await exportCatalog();
+assert.equal(firstCacheExport.job.pages.failed, 1);
+assert.equal(firstCacheExport.job.pages.reused, 0);
+assert.equal(pageCacheHarness.cachedPageCount, 2);
+
+pageCacheHarness.failedIds.delete(failedStory);
+pageCacheHarness.setSourceTab({ id: 1, url: 'https://storybook.test/storybook/?path=/story/components-dialog--default', status: 'complete' });
+const beforeRetry = pageCacheHarness.navigationUrls.length;
+const retryCacheExport = await exportCatalog();
+assert.equal(retryCacheExport.job.pages.reused, 2);
+assert.equal(retryCacheExport.job.pages.staticReady, 3);
+assert.equal(pageCacheHarness.navigationUrls.length - beforeRetry, 1, 'same pathname only navigates to the previously failed story');
+assert.equal(pageCacheHarness.cachedPageCount, 3, 'successful ZIP retains page snapshots for future jobs');
+
+pageCacheHarness.setSourceTab({ id: 1, url: 'https://storybook.test/another-book/?path=/docs/components-dialog--docs', status: 'complete' });
+const changedPathExport = await exportCatalog();
+assert.equal(changedPathExport.job.pages.reused, 0);
+assert.equal(changedPathExport.job.pages.scanned, 3);
+assert.equal(pageCacheHarness.cachedPageCount, 3, 'changing pathname deletes old snapshots instead of accumulating them');
+pageCacheHarness.setSourceTab({ id: 1, url: 'https://storybook.test/storybook/?path=/docs/components-dialog--docs', status: 'complete' });
+assert.equal((await exportCatalog()).job.pages.reused, 0, 'returning to the previous pathname cannot reuse cleared entries');
 
 const offlineFixture = {
   html: (id) => `<!doctype html><html><head><link rel="stylesheet" href="/offline.css"><script src="/bundle.js"></script></head><body><main class="sbdocs-wrapper"><h1>${id}</h1><img src="/shared.png"><img src="/icon.svg#mark"><img src="/missing.png"><img src="/secret.png?token=fixture-secret"><img src="https://external.test/private.png"><a href="/?path=/docs/guide--docs">Guide</a></main></body></html>`,

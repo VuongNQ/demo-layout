@@ -785,6 +785,7 @@ function offlineSafeError(error) {
   return String(error?.message || error || 'Unknown error').replace(/https?:\/\/[^\s"'<>]+/gi, (url) => StorybookOffline.sanitizeUrl(url)).slice(0, 500);
 }
 const OFFLINE_DB_NAME = 'storybook-offline-assets-v1';
+const OFFLINE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 function openOfflineDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(OFFLINE_DB_NAME, 1);
@@ -826,6 +827,54 @@ async function putStagedOfflineAsset(origin, entry) {
     await withOfflineStore('readwrite', (store) => store.put({ key, origin, contentHash: entry.contentHash, mimeType: entry.mimeType, resourceType: entry.resourceType, bytes, updatedAt: now() }));
   } catch (error) { throw new Error(`Offline staging storage/quota failure: ${errorText(error)}`); }
 }
+async function prepareOfflinePageCache(namespace) {
+  const records = new Map();
+  const expiredBefore = now() - OFFLINE_CACHE_TTL_MS;
+  await withOfflineStore('readwrite', (store) => {
+    const request = store.openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      const record = cursor.value;
+      if (record.kind === 'page-snapshot') {
+        if (record.namespace !== namespace || record.updatedAt < expiredBefore) cursor.delete();
+        else records.set(record.key, { bytes: record.bytes, updatedAt: record.updatedAt });
+      }
+      cursor.continue();
+    };
+  });
+  return { namespace, records, bytes: [...records.values()].reduce((total, record) => total + record.bytes, 0) };
+}
+async function readOfflinePageCache(cache, key, target, entry) {
+  if (!cache?.records.has(key)) return null;
+  const record = await withOfflineStore('readonly', (store) => store.get(key));
+  const page = record?.page;
+  return record?.namespace === cache.namespace && record.target === target && page?.id === entry.id &&
+    page.status === 'SCANNED' && typeof page.html === 'string' && page.html ? page : null;
+}
+async function writeOfflinePageCache(cache, key, target, page, bytes) {
+  if (!cache || !StorybookOffline.canCacheSnapshot(page, target)) return;
+  const oldBytes = cache.records.get(key)?.bytes || 0;
+  let total = cache.bytes - oldBytes + bytes;
+  const evictions = [];
+  const oldestFirst = total > StorybookOffline.MAX_PAGES_TOTAL_BYTES
+    ? [...cache.records].sort(([, a], [, b]) => a.updatedAt - b.updatedAt)
+    : [];
+  for (const [oldKey, record] of oldestFirst) {
+    if (total <= StorybookOffline.MAX_PAGES_TOTAL_BYTES) break;
+    if (oldKey === key) continue;
+    evictions.push(oldKey);
+    total -= record.bytes;
+  }
+  const updatedAt = now();
+  await withOfflineStore('readwrite', (store) => {
+    for (const oldKey of evictions) store.delete(oldKey);
+    store.put({ key, kind: 'page-snapshot', namespace: cache.namespace, target, page, bytes, updatedAt });
+  });
+  for (const oldKey of evictions) cache.records.delete(oldKey);
+  cache.records.set(key, { bytes, updatedAt });
+  cache.bytes = total;
+}
 async function cleanupOfflineStaging(origin, olderThan = 0) {
   const db = await openOfflineDb();
   try {
@@ -836,7 +885,7 @@ async function cleanupOfflineStaging(origin, olderThan = 0) {
         const cursor = request.result;
         if (!cursor) return;
         const item = cursor.value;
-        if ((!origin || item.origin === origin) && (!olderThan || item.updatedAt < olderThan)) cursor.delete();
+        if ((!origin || item.kind !== 'page-snapshot' && item.origin === origin) && (!olderThan || item.updatedAt < olderThan)) cursor.delete();
         cursor.continue();
       };
       tx.oncomplete = resolve;
@@ -892,10 +941,10 @@ async function exportOffline(message) {
     scope = ['all', 'catalog'].includes(message.scope) ? message.scope : 'current';
     source = await sourceTabContext({ docsOnly: scope === 'current' });
     sourceOrigin = new URL(source.tabUrl).origin;
-    await cleanupOfflineStaging('', now() - 7 * 24 * 60 * 60 * 1000).catch(() => {});
+    await cleanupOfflineStaging('', now() - OFFLINE_CACHE_TTL_MS).catch(() => {});
     id = new URL(source.tabUrl).searchParams.get('path')?.match(/^\/docs\/(.+)$/)?.[1] || new URL(source.tabUrl).searchParams.get('id') || '';
     if (scope === 'current' && !id) throw new Error('The source tab does not identify the current Storybook Docs entry.');
-    offlineJob = { id: `offline-${now()}`, kind: 'offline-static', scope, sourceUrl: StorybookOffline.sanitizeUrl(source.tabUrl), origin: sourceOrigin, state: 'discovering', phaseCode: 'DISCOVERING_PAGES', phase: 'Discovering Storybook pages', startedAt: now(), pages: { discovered: scope === 'current' ? 1 : 0, selected: scope === 'current' ? 1 : 0, scanning: 0, scanned: 0, staticReady: 0, partial: 0, failed: 0 }, assets: { discovered: 0, queued: 0, downloading: 0, downloaded: 0, failed: 0, skipped: 0, deduplicated: 0, downloadedBytes: 0 }, snapshotBytes: 0, currentPage: '', currentAsset: '', warnings: [], percent: 1, ownedTabId: null };
+    offlineJob = { id: `offline-${now()}`, kind: 'offline-static', scope, sourceUrl: StorybookOffline.sanitizeUrl(source.tabUrl), origin: sourceOrigin, state: 'discovering', phaseCode: 'DISCOVERING_PAGES', phase: 'Discovering Storybook pages', startedAt: now(), pages: { discovered: scope === 'current' ? 1 : 0, selected: scope === 'current' ? 1 : 0, scanning: 0, scanned: 0, reused: 0, staticReady: 0, partial: 0, failed: 0 }, assets: { discovered: 0, queued: 0, downloading: 0, downloaded: 0, failed: 0, skipped: 0, deduplicated: 0, downloadedBytes: 0 }, snapshotBytes: 0, currentPage: '', currentAsset: '', warnings: [], percent: 1, ownedTabId: null };
     await notifyOfflineJob();
   } catch (error) {
     offlineStarting = false;
@@ -919,6 +968,14 @@ async function exportOffline(message) {
       if (offlineJob.cancelRequested) throw new Error('Offline export cancelled.');
     };
     try {
+      let pageCache;
+      const disablePageCache = (error) => {
+        offlineJob.warnings.push(`Page cache unavailable: ${offlineSafeError(error)}`);
+        pageCache = null;
+        return null;
+      };
+      const sourcePath = new URL(source.tabUrl);
+      pageCache = await prepareOfflinePageCache(sourcePath.origin + sourcePath.pathname).catch(disablePageCache);
       let entries;
       let discoveredCount;
       if (scope === 'current') {
@@ -934,23 +991,31 @@ async function exportOffline(message) {
         offlineJob.percent = 10;
         if (discoveredCount > entries.length) offlineJob.warnings.push(`${discoveredCount - entries.length} Docs entries omitted by the 120-entry safety cap.`);
         if (!entries.length) throw new Error('No Storybook entries were discovered for this scope.');
-        ownedTab = await chrome.tabs.create({ url: 'about:blank', active: false });
-        offlineJob.ownedTabId = ownedTab.id;
         await notifyOfflineJob();
       }
       const pages = [];
       for (const entry of entries) {
         await waitAtPageBoundary();
-        if (scope !== 'current' && !ownedTab) { ownedTab = await chrome.tabs.create({ url: 'about:blank', active: false }); offlineJob.ownedTabId = ownedTab.id; await notifyOfflineJob(); }
         offlineJob.state = 'scanning'; offlineJob.phaseCode = 'SCANNING_PAGES'; offlineJob.phase = 'Capturing rendered Storybook pages'; offlineJob.currentPage = `${entry.title || entry.id} (${entry.id})`; offlineJob.pages.scanning++; await notifyOfflineJob();
         const categoryEvidence = categoryFor(entry);
         const metadata = { id: entry.id, title: entry.title || entry.id, type: entry.type, name: entry.name || '', tags: entry.tags || [], category: entry.category || categoryEvidence.category, categorySource: entry.categorySource || categoryEvidence.source, categoryConfidence: entry.categoryConfidence || categoryEvidence.confidence, categoryEvidence: entry.categoryEvidence || categoryEvidence.evidence };
         try {
-          const page = await offlineCapturePage(scope === 'current' ? source.tabId : ownedTab.id, entry, crawlBase.href, scope === 'current');
+          const target = new URL(scope === 'current' ? source.tabUrl : buildEntryUrl(crawlBase.href, entry.id, entry.type));
+          target.searchParams.sort();
+          const cacheKey = `page:${entry.type}:${entry.id}`;
+          const cached = await readOfflinePageCache(pageCache, cacheKey, target.href, entry).catch(disablePageCache);
+          if (!cached && scope !== 'current' && !ownedTab) {
+            ownedTab = await chrome.tabs.create({ url: 'about:blank', active: false });
+            offlineJob.ownedTabId = ownedTab.id;
+            await notifyOfflineJob();
+          }
+          const page = cached || await offlineCapturePage(scope === 'current' ? source.tabId : ownedTab.id, entry, crawlBase.href, scope === 'current');
           const pageBytes = new TextEncoder().encode(page.html).byteLength;
-          if (offlineJob.snapshotBytes + pageBytes > 16 * 1024 * 1024) throw new Error('Rendered page snapshots exceed the 16 MiB total snapshot limit.');
+          if (offlineJob.snapshotBytes + pageBytes > StorybookOffline.MAX_PAGES_TOTAL_BYTES) throw new Error('Rendered page snapshots exceed the 16 MiB total snapshot limit.');
           offlineJob.snapshotBytes += pageBytes;
           pages.push({ ...page, entry: metadata });
+          if (cached) offlineJob.pages.reused++;
+          else await writeOfflinePageCache(pageCache, cacheKey, target.href, page, pageBytes).catch(disablePageCache);
           offlineJob.pages.scanned++;
         } catch (error) {
           pages.push({ id: entry.id, title: metadata.title, entry: metadata, url: buildEntryUrl(crawlBase.href, entry.id, entry.type), status: 'FAILED', error: offlineSafeError(error) });
@@ -1326,7 +1391,7 @@ async function getOfflineJob(forceRecovery = false) {
       }
     }
     if (wasActive && offlineJob.state !== 'failed') {
-      offlineJob.state = 'failed'; offlineJob.phaseCode = 'FAILED'; offlineJob.phase = 'Worker restarted before export finished'; offlineJob.lastError = 'In-memory page and asset buffers cannot be recovered; start the export again.';
+      offlineJob.state = 'failed'; offlineJob.phaseCode = 'FAILED'; offlineJob.phase = 'Worker restarted before export finished'; offlineJob.lastError = 'Start the export again to reuse saved page snapshots and staged assets.';
     }
     if (wasActive || Number.isInteger(offlineJob.ownedTabId)) await notifyOfflineJob();
   }
