@@ -26,8 +26,9 @@
           <label class="option"><input id="format-offline" type="radio" name="format" value="offline"> Offline Static</label>
         </fieldset>
         <fieldset id="scope-options"><legend>Scope</legend>
-          <label class="option"><input type="radio" name="scope" value="current" checked> Current Docs</label>
+          <label class="option"><input id="scope-current" type="radio" name="scope" value="current" checked> Current Docs</label>
           <label class="option"><input type="radio" name="scope" value="all"> All Docs</label>
+          <label id="scope-catalog-option" class="option" hidden><input id="scope-catalog" type="radio" name="scope" value="catalog" disabled> All Docs + Stories</label>
         </fieldset>
         <fieldset id="markdown-options">
           <legend>Include</legend>

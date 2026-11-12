@@ -18,6 +18,10 @@ function updateFormatUi() {
   const offline = selectedFormat() === 'offline';
   byId('markdown-options').hidden = offline;
   byId('offline-authorization').hidden = !offline;
+  const catalog = byId('scope-catalog');
+  byId('scope-catalog-option').hidden = !offline;
+  catalog.disabled = !offline;
+  if (!offline && catalog.checked) byId('scope-current').checked = true;
   byId('current-preview').hidden = true;
   startButton.textContent = offline ? 'Generate Offline Static ZIP' : 'Extract & download';
 }
@@ -37,7 +41,8 @@ function renderOffline(job) {
   byId('offline-progress').value = Number(job.percent) || 0;
   byId('offline-source').textContent = `Source: ${job.sourceUrl || ''} · Scope: ${job.scope || ''}`;
   const p = job.pages || {}, a = job.assets || {};
-  byId('offline-counts').textContent = `Pages ${p.scanned || 0}/${p.selected || 0} scanned · ${p.staticReady || 0} static-ready · ${p.partial || 0} partial · ${p.failed || 0} failed. Assets ${a.downloaded || 0}/${a.discovered || 0} downloaded · ${a.failed || 0} failed · ${a.skipped || 0} skipped · ${a.deduplicated || 0} deduplicated · ${a.downloadedBytes || 0} bytes.`;
+  const discovered = job.scope === 'catalog' && p.docs !== undefined ? `${p.docs} Docs · ${p.stories} stories discovered. ` : '';
+  byId('offline-counts').textContent = `${discovered}Pages ${p.scanned || 0}/${p.selected || 0} scanned · ${p.staticReady || 0} static-ready · ${p.partial || 0} partial · ${p.failed || 0} failed. Assets ${a.downloaded || 0}/${a.discovered || 0} downloaded · ${a.failed || 0} failed · ${a.skipped || 0} skipped · ${a.deduplicated || 0} deduplicated · ${a.downloadedBytes || 0} bytes.`;
   byId('offline-current').textContent = [job.currentPage && `Page: ${job.currentPage}`, job.currentAsset && `Asset: ${job.currentAsset}`, job.filename && `Downloaded: ${job.filename}`, ...(job.warnings || [])].filter(Boolean).join(' · ');
   byId('offline-pause').hidden = !['discovering', 'scanning', 'discovering-assets', 'downloading-assets'].includes(job.state);
   byId('offline-resume').hidden = job.state !== 'paused';
@@ -326,7 +331,7 @@ startButton.addEventListener('click', async () => {
       const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
       if (!granted) throw new Error('Permission for the selected Storybook origin is required to fetch its static assets.');
       byId('offline-job-panel').hidden = false;
-      storybookMessage.textContent = 'Capturing local documentation and static assets…';
+      storybookMessage.textContent = 'Capturing Storybook pages and static assets…';
       byId('offline-authorized').checked = false;
       const response = await send({ action: 'EXPORT_OFFLINE', scope, authorizationConfirmed: true });
       renderOffline(response.job);

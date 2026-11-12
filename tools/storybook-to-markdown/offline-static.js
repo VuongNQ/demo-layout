@@ -260,6 +260,13 @@
         try { const url = new URL(reference); return SECRET_NAME.test(url.href) || [...url.searchParams.keys()].some((key) => SECRET_QUERY.test(key)) ? `${url.origin}${url.pathname}?[redacted]` : reference; } catch { return reference; }
       });
   }
+  function navigationEntryId(url) {
+    const pathId = url.searchParams.get('path')?.match(/^\/(?:docs|story)\/(.+)$/)?.[1];
+    if (pathId) return pathId;
+    if (url.pathname.endsWith('/iframe.html') && ['docs', 'story'].includes(url.searchParams.get('viewMode'))) return url.searchParams.get('id');
+    return null;
+  }
+
   function localizeReferences(html, baseUrl, registry, pagePath, pageIds) {
     const relative = (target) => {
       const from = pagePath.split('/').slice(0, -1), to = target.split('/');
@@ -271,7 +278,7 @@
       let resolved;
       try { resolved = new URL(value, baseUrl); } catch { return ''; }
       if (isNav && resolved.origin === new URL(baseUrl).origin) {
-        const id = resolved.searchParams.get('path')?.match(/^\/docs\/(.+)$/)?.[1];
+        const id = navigationEntryId(resolved);
         if (id && pageIds.has(id)) return relative(pageIds.get(id)) + resolved.hash;
       }
       const identity = canonicalize(value, baseUrl, new URL(baseUrl).origin);
@@ -395,45 +402,67 @@
     };
     const pageIds = new Map(pages.filter((page) => page.status !== 'FAILED').map((page) => [page.id, pathForPage(page.id)]));
     const pageResults = pages.map((page) => {
-      if (!page.html || page.status === 'FAILED') { const warnings = [page.error || 'No usable rendered snapshot was captured.']; return { id: page.id, title: page.title || page.id, name: page.entry?.name || '', tags: page.entry?.tags || [], category: page.entry?.category || '', categorySource: page.entry?.categorySource || '', categoryConfidence: page.entry?.categoryConfidence || '', categoryEvidence: page.entry?.categoryEvidence || '', sourceUrl: sanitizeUrl(page.url), path: '', status: 'FAILED', warningCount: warnings.length, failureCount: 1, warnings }; }
+      const entry = page.entry || {};
+      const metadata = {
+        id: page.id, type: entry.type || 'docs', title: page.title || page.id, name: entry.name || '', tags: entry.tags || [],
+        storybookTitle: entry.title && entry.title !== page.id ? entry.title : (page.title || page.id),
+        category: entry.category || '', categorySource: entry.categorySource || '',
+        categoryConfidence: entry.categoryConfidence || '', categoryEvidence: entry.categoryEvidence || '',
+        sourceUrl: sanitizeUrl(page.url),
+      };
+      if (!page.html || page.status === 'FAILED') { const warnings = [page.error || 'No usable rendered snapshot was captured.']; return { ...metadata, path: '', status: 'FAILED', warningCount: warnings.length, failureCount: 1, warnings }; }
       const path = pageIds.get(page.id);
       const failedRefs = registry.values().filter((asset) => asset.referencingPageIds.includes(page.id) && asset.status !== 'DOWNLOADED');
       const missingNavTargets = [];
       for (const match of page.html.matchAll(/<a\b[^>]*\bhref\s*=\s*(['"])(.*?)\1/gi)) {
         try {
           const target = new URL(match[2], page.url);
-          const id = target.searchParams.get('path')?.match(/^\/docs\/(.+)$/)?.[1];
+          const id = navigationEntryId(target);
           if (target.origin === new URL(page.url).origin && id && !pageIds.has(id) && !missingNavTargets.includes(id)) missingNavTargets.push(id);
         } catch {}
       }
       const status = failedRefs.length || missingNavTargets.length ? 'PARTIAL' : 'STATIC_READY';
       const local = localizeReferences(page.html, page.url, registry, path, pageIds);
       files.push({ path, content: local });
-      const warnings = [...failedRefs.map((asset) => `Unresolved ${asset.discoverySources.join(', ') || asset.resourceType}: ${asset.originalUrl || asset.failureReason}`), ...missingNavTargets.map((id) => `Internal Docs navigation target was not included: ${id}`)];
-      return { id: page.id, title: page.title || page.id, name: page.entry?.name || '', tags: page.entry?.tags || [], storybookTitle: page.entry?.title && page.entry.title !== page.id ? page.entry.title : (page.title || page.id), category: page.entry?.category || '', categorySource: page.entry?.categorySource || '', categoryConfidence: page.entry?.categoryConfidence || '', categoryEvidence: page.entry?.categoryEvidence || '', sourceUrl: sanitizeUrl(page.url), path, frame: page.readiness || null, status, warningCount: warnings.length, failureCount: failedRefs.filter((asset) => asset.status === 'FAILED').length, warnings };
+      const warnings = [...failedRefs.map((asset) => `Unresolved ${asset.discoverySources.join(', ') || asset.resourceType}: ${asset.originalUrl || asset.failureReason}`), ...missingNavTargets.map((id) => `Internal Storybook navigation target was not included: ${id}`)];
+      return { ...metadata, path, frame: page.readiness || null, status, warningCount: warnings.length, failureCount: failedRefs.filter((asset) => asset.status === 'FAILED').length, warnings };
     });
     for (const entry of registry.values()) if (entry.status === 'DOWNLOADED' && entry.bytes) files.push({ path: entry.localArchivePath, bytes: entry.bytes });
-    const tree = { children: new Map(), page: null };
+    const tree = { children: new Map(), pages: [] };
     for (const page of pageResults) {
       const parts = String(page.storybookTitle || page.title).split(/[\\/]/).map((part) => part.trim()).filter(Boolean);
       let node = tree;
-      for (const part of parts) { if (!node.children.has(part)) node.children.set(part, { children: new Map(), page: null }); node = node.children.get(part); }
-      node.page = page;
+      for (const part of parts) {
+        if (!node.children.has(part)) node.children.set(part, { children: new Map(), pages: [] });
+        node = node.children.get(part);
+      }
+      node.pages.push(page);
     }
-    const renderTree = (node) => `<ul>${[...node.children].map(([label, child]) => `<li>${child.page ? (child.page.path ? `<a href="${escapeHtml(child.page.path)}">${escapeHtml(label)}</a>${child.page.status === 'PARTIAL' ? ' <small>Partial</small>' : ''}` : `${escapeHtml(label)} (failed) <small>${child.page.status}</small>`) : escapeHtml(label)}${child.page && child.children.size ? renderTree(child) : child.children.size ? renderTree(child) : ''}</li>`).join('')}</ul>`;
+    const renderPageLink = (page, label) => page.path
+      ? `<a href="${escapeHtml(page.path)}">${escapeHtml(label)}</a>${page.status === 'PARTIAL' ? ' <small>Partial</small>' : ''}`
+      : `${escapeHtml(label)} (failed) <small>${page.status}</small>`;
+    const renderTree = (node) => `<ul>${[...node.children].map(([label, child]) => {
+      const showEntries = scope === 'catalog' || child.pages.length > 1;
+      const heading = !showEntries && child.pages.length === 1 ? renderPageLink(child.pages[0], label) : escapeHtml(label);
+      const entries = showEntries && child.pages.length
+        ? `<ul>${child.pages.map((page) => `<li>${renderPageLink(page, page.name || page.id)}</li>`).join('')}</ul>`
+        : '';
+      return `<li>${heading}${entries}${child.children.size ? renderTree(child) : ''}</li>`;
+    }).join('')}</ul>`;
     const nav = renderTree(tree);
+    const indexLabel = scope === 'catalog' ? 'Offline Storybook' : 'Offline Storybook Docs';
     for (const page of pageResults.filter((candidate) => candidate.path)) {
       const file = files.find((candidate) => candidate.path === page.path);
       if (!file) continue;
-      const related = pageResults.filter((candidate) => candidate.path && candidate.id !== page.id).map((candidate) => `<a href="${escapeHtml(candidate.path.replace(/^pages\//, ''))}">${escapeHtml(candidate.storybookTitle || candidate.title)}</a>`).join(' · ');
-      const pageNav = `<nav aria-label="Offline documentation navigation" style="margin:0 0 1.5rem;padding:.75rem;border-bottom:1px solid #bbb"><a href="../index.html">All Docs</a>${related ? ` · ${related}` : ''}</nav>`;
+      const related = scope === 'catalog' ? '' : pageResults.filter((candidate) => candidate.path && candidate.id !== page.id).map((candidate) => `<a href="${escapeHtml(candidate.path.replace(/^pages\//, ''))}">${escapeHtml(candidate.storybookTitle || candidate.title)}</a>`).join(' · ');
+      const pageNav = `<nav aria-label="Offline documentation navigation" style="margin:0 0 1.5rem;padding:.75rem;border-bottom:1px solid #bbb"><a href="../index.html">${scope === 'catalog' ? 'All Docs + Stories' : 'All Docs'}</a>${related ? ` · ${related}` : ''}</nav>`;
       const body = /<body\b[^>]*>/i;
       file.content = body.test(file.content) ? file.content.replace(body, (opening) => `${opening}${pageNav}`) : file.content.replace(/<\/html\s*>/i, `<body>${pageNav}</body></html>`);
     }
-    files.push({ path: 'index.html', content: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Offline Storybook Docs</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem}nav li{margin:.4rem 0}small{color:#666}</style><h1>Offline Storybook Docs</h1><p>Static documentation snapshot. Interactive Storybook behavior is not included.</p><nav aria-label="Documentation pages">${nav}</nav></html>` });
+    files.push({ path: 'index.html', content: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${indexLabel}</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem}nav li{margin:.4rem 0}small{color:#666}</style><h1>${indexLabel}</h1><p>Static page snapshots. Interactive Storybook behavior is not included.</p><nav aria-label="Storybook pages">${nav}</nav></html>` });
     const failedAssets = registry.values().filter((asset) => asset.status !== 'DOWNLOADED');
     const packagedSizeByPath = new Map(registry.values().filter((asset) => asset.status === 'DOWNLOADED' && asset.bytes).map((asset) => [asset.localArchivePath, asset.bytes.byteLength]));
-    const manifest = { schemaVersion: 1, format: 'storybook-offline-static', sourceOrigin: (() => { try { return new URL(sourceUrl).origin; } catch { return ''; } })(), capturedAt: createdAt, scope, discoveredPages: discoveredCount, selectedPages: pages.length, completedPages: pageResults.filter((page) => page.status === 'STATIC_READY').length, partialPages: pageResults.filter((page) => page.status === 'PARTIAL').length, failedPages: pageResults.filter((page) => page.status === 'FAILED').length, pages: pageResults, assetsManifest: 'ASSET_MANIFEST.json', limitations: ['Static snapshot only; scripts are removed and interactive behavior is not claimed.'] };
+    const manifest = { schemaVersion: 1, format: 'storybook-offline-static', sourceOrigin: (() => { try { return new URL(sourceUrl).origin; } catch { return ''; } })(), capturedAt: createdAt, scope, discoveredPages: discoveredCount, selectedPages: pages.length, omittedPages: Math.max(0, discoveredCount - pages.length), completedPages: pageResults.filter((page) => page.status === 'STATIC_READY').length, partialPages: pageResults.filter((page) => page.status === 'PARTIAL').length, failedPages: pageResults.filter((page) => page.status === 'FAILED').length, pages: pageResults, assetsManifest: 'ASSET_MANIFEST.json', limitations: ['Static snapshot only; scripts are removed and interactive behavior is not claimed.'] };
     const assetManifest = registry.values().map(({ assetId, resourceType, originalUrl, canonicalFetchKey, referencingPageIds: referringPageIds, referencingAssetIds: referringAssetIds, discoverySources, status, attempts, mimeType, byteSize, downloadedByteSize, contentHash, localArchivePath, rewriteStatus, failureReason, warnings }) => ({ assetId, type: resourceType, source: sanitizeUrl(originalUrl), canonicalResourceIdentity: sanitizeUrl(canonicalFetchKey), referringPageIds, referringAssetIds, discoveryEvidence: discoverySources, status, attempts, mimeType, byteSize: downloadedByteSize ?? byteSize, packagedByteSize: packagedSizeByPath.get(localArchivePath) || 0, contentHash, localArchivePath, rewriteStatus, error: failureReason, warnings }));
     const totals = { urlReferences: registry.values().reduce((n, a) => n + (a.referenceCount || 1), 0), urlDuplicates: registry.values().reduce((n, a) => n + (a.referenceCount || 1), 0) - registry.values().length, contentDuplicates: registry.values().filter((a) => a.warnings.some((w) => w.includes('shares an archive'))).length, downloadedBytes: registry.values().reduce((n, a) => n + (a.status === 'DOWNLOADED' ? (a.downloadedByteSize ?? a.byteSize) : 0), 0), packagedBytes: files.reduce((n, file) => n + (file.bytes?.byteLength || new TextEncoder().encode(file.content || '').byteLength), 0) };
     const byType = Object.fromEntries(['css', 'js', 'font', 'image', 'svg', 'other'].map((type) => [type, failedAssets.filter((asset) => asset.resourceType === type).length]));
@@ -443,7 +472,7 @@
       if (page.warnings.length > 8) warnings.push(`  - ${page.warnings.length - 8} additional warnings are available in manifest.json.`);
       return [`- ${page.status}: ${String(page.storybookTitle || page.title).replace(/[\r\n]+/g, ' ')} (${page.id})${page.path ? ` — pages/${page.path.split('/').pop()}` : ''}`, ...warnings].join('\n');
     }).join('\n');
-    const report = `# Offline export report\n\n## Page coverage\n- Discovered Docs: ${discoveredCount}\n- Selected Docs: ${pages.length}\n- STATIC_READY: ${pageResults.filter((p) => p.status === 'STATIC_READY').length}\n- PARTIAL: ${pageResults.filter((p) => p.status === 'PARTIAL').length}\n- FAILED: ${pageResults.filter((p) => p.status === 'FAILED').length}\n- Omitted by the 120-entry safety cap: ${Math.max(0, discoveredCount - pages.length)}\n\n## Page outcomes\n${outcomeLines}\n\n## Asset coverage\n- Resource references observed: ${totals.urlReferences}\n- Unique canonical resources: ${registry.values().length}\n- Duplicate URL fetches avoided: ${Math.max(0, totals.urlDuplicates)}\n- Identical content entries sharing a member: ${totals.contentDuplicates}\n- Downloaded resources: ${registry.values().filter((a) => a.status === 'DOWNLOADED').length}\n- Failed: ${registry.values().filter((a) => a.status === 'FAILED').length}\n- Skipped: ${registry.values().filter((a) => a.status === 'SKIPPED').length}\n- Downloaded resource bytes: ${totals.downloadedBytes}\n- Packaged uncompressed bytes: ${totals.packagedBytes}\n\n## Missing dependencies\n- CSS: ${byType.css}\n- JavaScript: ${byType.js}\n- Fonts: ${byType.font}\n- Images: ${byType.image}\n- SVG/other static resources: ${byType.svg + byType.other}\n- Unsupported iframe references: ${registry.values().filter((asset) => asset.failureReason?.includes('iframe')).length}\n- Dynamic/runtime-only imports observed: ${dynamicImports.length}\n${failedAssets.map((a) => `- ${a.resourceType}: ${sanitizeUrl(a.originalUrl)} — ${a.failureReason || a.status}`).join('\n') || '- No failed dependency records.'}\n${dynamicImports.map((warning) => `- Unsupported dynamic dependency: ${warning}`).join('\n')}\n\n## Offline validation\n- Observed: page metadata, discovered resource references, HTTP responses, and local archive path consistency were checked during export.\n- Inferred: resources not observed during capture may still be required by runtime-only behavior.\n- Generated local index and page-link paths: checked structurally before packaging.\n- Local CSS/image/font paths: rewritten when the resource downloaded; missing references are removed and listed above.\n- Remaining external network references: blocked by same-origin rewriting policy for supported resource attributes.\n- Browser/file:// validation: not established by this archive generator.\n- Static fidelity limitations: stylesheet coverage is best-effort; canvas and runtime-rendered content can be absent.\n- Interactive compatibility: scripts are removed; APIs and interactions are unsupported.\n\n## Security\n- Export scope: ${scope}.\n- Approved origin: ${sanitizeUrl(sourceUrl)}\n- Secret-bearing and off-origin resources are skipped. No cookies or browser storage are read or exported.\n- Review organizational policy and archive handling before storage or transfer.\n`;
+    const report = `# Offline export report\n\n## Page coverage\n- Discovered entries: ${discoveredCount}\n- Selected entries: ${pages.length}\n- Docs: ${pageResults.filter((page) => page.type === 'docs').length}\n- Stories: ${pageResults.filter((page) => page.type === 'story').length}\n- STATIC_READY: ${pageResults.filter((p) => p.status === 'STATIC_READY').length}\n- PARTIAL: ${pageResults.filter((p) => p.status === 'PARTIAL').length}\n- FAILED: ${pageResults.filter((p) => p.status === 'FAILED').length}\n- Omitted entries: ${Math.max(0, discoveredCount - pages.length)}\n\n## Page outcomes\n${outcomeLines}\n\n## Asset coverage\n- Resource references observed: ${totals.urlReferences}\n- Unique canonical resources: ${registry.values().length}\n- Duplicate URL fetches avoided: ${Math.max(0, totals.urlDuplicates)}\n- Identical content entries sharing a member: ${totals.contentDuplicates}\n- Downloaded resources: ${registry.values().filter((a) => a.status === 'DOWNLOADED').length}\n- Failed: ${registry.values().filter((a) => a.status === 'FAILED').length}\n- Skipped: ${registry.values().filter((a) => a.status === 'SKIPPED').length}\n- Downloaded resource bytes: ${totals.downloadedBytes}\n- Packaged uncompressed bytes: ${totals.packagedBytes}\n\n## Missing dependencies\n- CSS: ${byType.css}\n- JavaScript: ${byType.js}\n- Fonts: ${byType.font}\n- Images: ${byType.image}\n- SVG/other static resources: ${byType.svg + byType.other}\n- Unsupported iframe references: ${registry.values().filter((asset) => asset.failureReason?.includes('iframe')).length}\n- Dynamic/runtime-only imports observed: ${dynamicImports.length}\n${failedAssets.map((a) => `- ${a.resourceType}: ${sanitizeUrl(a.originalUrl)} — ${a.failureReason || a.status}`).join('\n') || '- No failed dependency records.'}\n${dynamicImports.map((warning) => `- Unsupported dynamic dependency: ${warning}`).join('\n')}\n\n## Offline validation\n- Observed: page metadata, discovered resource references, HTTP responses, and local archive path consistency were checked during export.\n- Inferred: resources not observed during capture may still be required by runtime-only behavior.\n- Generated local index and page-link paths: checked structurally before packaging.\n- Local CSS/image/font paths: rewritten when the resource downloaded; missing references are removed and listed above.\n- Remaining external network references: blocked by same-origin rewriting policy for supported resource attributes.\n- Browser/file:// validation: not established by this archive generator.\n- Static fidelity limitations: stylesheet coverage is best-effort; canvas and runtime-rendered content can be absent.\n- Interactive compatibility: scripts are removed; APIs and interactions are unsupported.\n\n## Security\n- Export scope: ${scope}.\n- Approved origin: ${sanitizeUrl(sourceUrl)}\n- Secret-bearing and off-origin resources are skipped. No cookies or browser storage are read or exported.\n- Review organizational policy and archive handling before storage or transfer.\n`;
     files.push({ path: 'manifest.json', content: JSON.stringify(manifest, null, 2) });
     files.push({ path: 'ASSET_MANIFEST.json', content: JSON.stringify(assetManifest, null, 2) });
     files.push({ path: 'OFFLINE_REPORT.md', content: report });
@@ -456,8 +485,8 @@
     const boundedPages = pages.map((page) => {
       if (!page.html || page.status === 'FAILED') return page;
       const size = new TextEncoder().encode(page.html).byteLength;
-      if (size > MAX_PAGE_BYTES) return { ...page, html: '', status: 'FAILED', error: `Rendered Docs snapshot exceeds ${MAX_PAGE_BYTES} byte per-page limit.` };
-      if (pageBytes + size > MAX_PAGES_TOTAL_BYTES) return { ...page, html: '', status: 'FAILED', error: `Rendered Docs snapshots exceed ${MAX_PAGES_TOTAL_BYTES} byte total limit.` };
+      if (size > MAX_PAGE_BYTES) return { ...page, html: '', status: 'FAILED', error: `Rendered page snapshot exceeds ${MAX_PAGE_BYTES} byte per-page limit.` };
+      if (pageBytes + size > MAX_PAGES_TOTAL_BYTES) return { ...page, html: '', status: 'FAILED', error: `Rendered page snapshots exceed ${MAX_PAGES_TOTAL_BYTES} byte total limit.` };
       pageBytes += size;
       return page;
     });

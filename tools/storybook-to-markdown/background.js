@@ -256,10 +256,10 @@ function normalizeOptions(options) {
   return { props: options?.props !== false, tokens: options?.tokens !== false, examples: options?.examples !== false };
 }
 
-async function discover(tabId, sourceUrl) {
+async function discover(tabId, sourceUrl, includeStories = false) {
   const result = await chrome.scripting.executeScript({
     target: { tabId },
-    func: async (source) => {
+    func: async (source, includeStories) => {
       const current = new URL(source);
       const base = new URL('.', current);
       const candidates = [new URL('index.json', base), new URL('stories.json', base), new URL('/index.json', current.origin), new URL('/stories.json', current.origin)];
@@ -271,34 +271,35 @@ async function discover(tabId, sourceUrl) {
           const response = await fetch(url, { credentials: 'same-origin' });
           if (!response.ok) continue;
           const json = await response.json();
-          const entries = json.entries || json.stories || {};
+          const entries = json.entries || json.stories;
+          if (!entries || typeof entries !== 'object' || Array.isArray(entries)) continue;
           return { indexUrl: url.href, entries: Object.entries(entries).map(([id, entry]) => ({
             id,
-            type: entry.type || (entry.isDocsOnly ? 'docs' : ''),
+            type: entry.type || (entry.isDocsOnly ? 'docs' : 'story'),
             title: entry.title || entry.kind || '',
             name: entry.name || '',
             tags: Array.isArray(entry.tags) ? entry.tags : [],
             importPath: entry.importPath || '',
-          })).filter((entry) => entry.type === 'docs') };
+          })).filter((entry) => entry.type === 'docs' || (includeStories && entry.type === 'story')) };
         } catch { /* Probe the next supported index path. */ }
       }
       return { indexUrl: '', entries: [] };
     },
-    args: [sourceUrl],
+    args: [sourceUrl, includeStories],
   });
   const payload = result[0]?.result || { indexUrl: '', entries: [] };
-  return { indexUrl: payload.indexUrl, entries: payload.entries.slice(0, MAX_PAGES), discovered: payload.entries.length };
+  return { indexUrl: payload.indexUrl, entries: includeStories ? payload.entries : payload.entries.slice(0, MAX_PAGES), discovered: payload.entries.length };
 }
 
-function buildDocsUrl(sourceUrl, id) {
+function buildEntryUrl(sourceUrl, id, type = 'docs') {
   const target = new URL(sourceUrl);
-  target.searchParams.set('path', `/docs/${id}`);
-  target.search = target.search.replace(/([?&]path=)%2Fdocs%2F/i, '$1/docs/');
+  target.searchParams.set('path', `/${type}/${id}`);
+  target.search = target.search.replace(/([?&]path=)%2F(docs|story)%2F/i, '$1/$2/');
   target.hash = '';
   return target.href;
 }
 
-function matchesDocsUrl(url, target) {
+function matchesEntryUrl(url, target) {
   try {
     const actual = new URL(url);
     const expected = new URL(target);
@@ -317,29 +318,30 @@ function navigateTab(tabId, target) {
       error ? reject(error) : resolve();
     };
     const listener = (updatedId, info, tab) => {
-      if (updatedId === tabId && info.status === 'complete' && matchesDocsUrl(tab.url || '', target)) finish();
+      if (updatedId === tabId && info.status === 'complete' && matchesEntryUrl(tab.url || '', target)) finish();
     };
     const timer = setTimeout(() => finish(new Error(`Navigation timed out: ${target}`)), NAVIGATION_TIMEOUT_MS);
     chrome.tabs.onUpdated.addListener(listener);
     chrome.tabs.update(tabId, { url: target }).then(async () => {
       const tab = await chrome.tabs.get(tabId);
-      if (tab.status === 'complete' && matchesDocsUrl(tab.url || '', target)) finish();
+      if (tab.status === 'complete' && matchesEntryUrl(tab.url || '', target)) finish();
     }).catch(finish);
   });
 }
 
-function inspectDocsReadiness(expectedId) {
+function inspectDocsReadiness(expectedId, type = 'docs') {
   const params = new URLSearchParams(location.search);
   const route = params.get('path') || '';
   const iframeId = params.get('id') || '';
   const viewMode = params.get('viewMode') || '';
-  const routeId = route.replace(/^\/docs\//, '');
+  const prefix = `/${type}/`;
+  const routeId = route.startsWith(prefix) ? route.slice(prefix.length) : '';
   const id = routeId || iframeId;
-  const routeMatches = routeId === expectedId || (viewMode === 'docs' && iframeId === expectedId);
-  const rootSelectors = ['.sbdocs-wrapper', '.sbdocs-content', '#storybook-docs', '[data-testid="storybook-docs"]'];
+  const routeMatches = type === 'story' ? viewMode === 'story' && iframeId === expectedId : routeId === expectedId || (viewMode === 'docs' && iframeId === expectedId);
+  const rootSelectors = type === 'story' ? ['#storybook-root'] : ['.sbdocs-wrapper', '.sbdocs-content', '#storybook-docs', '[data-testid="storybook-docs"]'];
   const matchedRootSelector = rootSelectors.find((selector) => document.querySelector(selector)) || '';
   const root = matchedRootSelector ? document.querySelector(matchedRootSelector) : null;
-  if (!root || !routeMatches) return { ready: false, id, route, viewMode, matchedRootSelector, length: 0, busySelectors: [], reason: !routeMatches ? 'entry-id-mismatch' : 'docs-root-absent' };
+  if (!root || !routeMatches) return { ready: false, id, route, viewMode, matchedRootSelector, length: 0, busySelectors: [], reason: !routeMatches ? 'entry-id-mismatch' : `${type}-root-absent` };
   const value = String(root.innerText || root.textContent || '').replace(/\s+/g, ' ').trim();
   const busySelectors = [];
   if (root.matches?.('[aria-busy="true"]')) busySelectors.push('[aria-busy="true"] (root)');
@@ -350,9 +352,11 @@ function inspectDocsReadiness(expectedId) {
   // Storybook can leave a stale busy marker beside fully rendered Docs text.
   // Matching ID, substantive text and stability are the readiness authority;
   // busy selectors remain diagnostic evidence rather than an unconditional veto.
-  const substantive = value.length > 0 && !placeholderOnly;
+  const storyBlocked = type === 'story' && document.body?.matches('.sb-show-errordisplay, .sb-show-nopreview, .sb-show-preparing-story');
+  const substantive = !placeholderOnly && (type === 'story' ? !storyBlocked && Boolean(root.childElementCount || value) : value.length > 0);
+  const content = type === 'story' ? root.innerHTML : value;
   let textHash = 2166136261;
-  for (let index = 0; index < value.length; index++) textHash = Math.imul(textHash ^ value.charCodeAt(index), 16777619);
+  for (let index = 0; index < content.length; index++) textHash = Math.imul(textHash ^ content.charCodeAt(index), 16777619);
   return {
     ready: routeMatches && Boolean(root) && substantive,
     id,
@@ -362,11 +366,11 @@ function inspectDocsReadiness(expectedId) {
     length: value.length,
     busySelectors,
     reason: substantive ? (busySelectors.length ? 'content-visible-with-busy-marker' : 'content-visible') : 'content-empty-or-placeholder',
-    signature: `${document.title}|${value.length}|${textHash >>> 0}`,
+    signature: `${document.title}|${content.length}|${textHash >>> 0}`,
   };
 }
 
-async function waitForDocsReady(tabId, entry, isCancelled = () => Boolean(job?.cancelRequested)) {
+async function waitForEntryReady(tabId, entry, isCancelled = () => Boolean(job?.cancelRequested)) {
   const started = now();
   let previous = '';
   let stableCount = 0;
@@ -374,7 +378,7 @@ async function waitForDocsReady(tabId, entry, isCancelled = () => Boolean(job?.c
   let samples = [];
   while (now() - started < READINESS_TIMEOUT_MS) {
     if (isCancelled()) throw new Error('Cancelled after active page settled.');
-    const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectDocsReadiness, args: [entry.id] });
+    const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectDocsReadiness, args: [entry.id, entry.type || 'docs'] });
     lastFrames = results.map((result) => ({ frameId: result.frameId, ...(result.result || {}) }));
     const probes = lastFrames.filter((result) => result.ready);
     probes.sort((a, b) => a.frameId - b.frameId);
@@ -395,7 +399,7 @@ async function waitForDocsReady(tabId, entry, isCancelled = () => Boolean(job?.c
   const frameSummary = lastFrames.map(({ frameId, id, route, viewMode, matchedRootSelector, length, busySelectors, reason }) =>
     `frame ${frameId}: id=${id || 'none'}, route=${route || 'none'}, viewMode=${viewMode || 'none'}, root=${matchedRootSelector || 'none'}, text=${length || 0}, busy=${busySelectors?.join(',') || 'none'}, reason=${reason || 'unknown'}`,
   ).join('; ').slice(0, 900);
-  throw new Error(`Docs readiness timed out after ${READINESS_TIMEOUT_MS / 1000}s (expected ID: ${entry.id}). Last frame probes: ${frameSummary || 'none'}`);
+  throw new Error(`${entry.type === 'story' ? 'Story' : 'Docs'} readiness timed out after ${READINESS_TIMEOUT_MS / 1000}s (expected ID: ${entry.id}). Last frame probes: ${frameSummary || 'none'}`);
 }
 
 async function extractFromTab(tabId, options, expectedId = '', frameId = undefined) {
@@ -441,9 +445,9 @@ async function processEntry(entry, tabId) {
   job.state = 'crawling';
   job.phase = `Loading ${entry.title}`;
   await notifyPopup();
-  const target = buildDocsUrl(job.sourceUrl, entry.id);
+  const target = buildEntryUrl(job.sourceUrl, entry.id);
   await navigateTab(tabId, target);
-  const readiness = await waitForDocsReady(tabId, entry);
+  const readiness = await waitForEntryReady(tabId, entry);
   if (job.cancelRequested) throw new Error('Cancelled after active page settled.');
   const page = await extractFromTab(tabId, job.options, entry.id, readiness.frameId);
   page.readiness = { frameId: readiness.frameId, entryId: readiness.id, rootSelector: readiness.matchedRootSelector, textLength: readiness.length, stabilizationSamples: readiness.stabilizationSamples, busySelectors: readiness.busySelectors };
@@ -539,7 +543,7 @@ function zipFilesFor(jobSnapshot) {
     if (token.conflict) token.conflictValues = variants.map((value) => JSON.parse(value));
   }
   const manifestEntries = jobSnapshot.entries.map(({ id, type, title, titleSource, name, tags, importPath, category, categorySource, categoryConfidence, categoryEvidence, path, status, attempts, error, history, page }) => ({
-    id, type, title, titleSource, name, tags, importPath, category, categorySource, categoryConfidence, categoryEvidence, path, status, attempts, error: error || '', history: history || [], readiness: page?.readiness || null, sourceUrl: page?.sourceUrl || buildDocsUrl(jobSnapshot.sourceUrl, id),
+    id, type, title, titleSource, name, tags, importPath, category, categorySource, categoryConfidence, categoryEvidence, path, status, attempts, error: error || '', history: history || [], readiness: page?.readiness || null, sourceUrl: page?.sourceUrl || buildEntryUrl(jobSnapshot.sourceUrl, id),
   }));
   const manifest = {
     schemaVersion: 1,
@@ -736,19 +740,20 @@ async function downloadCurrent(message) {
   return { filename, pages: 1, preview: output.slice(0, 8000) };
 }
 
-function captureOfflinePage(expectedId) {
-  const route = new URLSearchParams(location.search).get('path') || '';
-  const storyId = route.replace(/^\/docs\//, '') || new URLSearchParams(location.search).get('id') || '';
-  const selectors = ['.sbdocs-wrapper', '.sbdocs-content', '#storybook-docs', '[data-testid="storybook-docs"]'];
+function captureOfflinePage(expectedId, type = 'docs') {
+  const params = new URLSearchParams(location.search);
+  const route = params.get('path') || '';
+  const storyId = type === 'story' ? (params.get('viewMode') === 'story' ? params.get('id') : '') : route.replace(/^\/docs\//, '') || params.get('id') || '';
+  const selectors = type === 'story' ? ['#storybook-root'] : ['.sbdocs-wrapper', '.sbdocs-content', '#storybook-docs', '[data-testid="storybook-docs"]'];
   const root = selectors.map((selector) => document.querySelector(selector)).find(Boolean);
-  if (!root || storyId !== expectedId) throw new Error(`Docs snapshot mismatch: expected ${expectedId}, found ${storyId || 'none'}.`);
+  if (!root || storyId !== expectedId) throw new Error(`Page snapshot mismatch: expected ${expectedId}, found ${storyId || 'none'}.`);
   const title = String(root.querySelector('h1,h2')?.textContent || document.title).trim();
   const head = [...document.head.children].filter((node) => node.tagName === 'STYLE' || node.tagName === 'LINK' && /stylesheet/i.test(node.rel) || node.tagName === 'META' && (node.hasAttribute('charset') || String(node.getAttribute('name') || '').toLowerCase() === 'viewport')).map((node) => node.outerHTML).join('\n');
   const performanceResources = performance.getEntriesByType('resource').filter((resource) => ['css', 'img', 'image', 'script', 'font'].includes(resource.initiatorType) && new URL(resource.name, location.href).origin === location.origin).map((resource) => ({ url: resource.name, initiatorType: resource.initiatorType }));
   const htmlAttrs = ['lang', 'dir', 'class', 'data-theme', 'data-color-scheme'].map((name) => { const value = document.documentElement.getAttribute(name); return value ? `${name}="${value.replace(/[&<>"']/g, '')}"` : ''; }).filter(Boolean).join(' ');
   const bodyAttrs = ['class', 'data-theme', 'data-color-scheme'].map((name) => { const value = document.body?.getAttribute(name); return value ? `${name}="${value.replace(/[&<>"']/g, '')}"` : ''; }).filter(Boolean).join(' ');
   const html = `<!doctype html><html ${htmlAttrs}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title.replace(/[&<>"']/g, '')}</title>${head}</head><body ${bodyAttrs}>${root.outerHTML}</body></html>`;
-  if (new TextEncoder().encode(html).byteLength > 1024 * 1024) throw new Error('Rendered Docs snapshot exceeds the 1 MiB per-page limit.');
+  if (new TextEncoder().encode(html).byteLength > 1024 * 1024) throw new Error('Rendered page snapshot exceeds the 1 MiB per-page limit.');
   return { id: storyId, title, url: location.href, html, frameUrl: location.href, frameTitle: document.title, rootSelector: selectors.find((selector) => document.querySelector(selector)) || '', performanceResources };
 }
 
@@ -839,10 +844,10 @@ function offlineCurrentState() {
   return chrome.storage.local.get(OFFLINE_JOB_KEY).then((stored) => stored[OFFLINE_JOB_KEY] || { state: 'idle', phaseCode: 'IDLE' });
 }
 async function offlineCapturePage(tabId, entry, sourceUrl, isCurrent) {
-  const target = isCurrent ? sourceUrl : buildDocsUrl(sourceUrl, entry.id);
+  const target = isCurrent ? sourceUrl : buildEntryUrl(sourceUrl, entry.id, entry.type);
   if (!isCurrent) await navigateTab(tabId, target);
-  const ready = await waitForDocsReady(tabId, entry, () => Boolean(offlineJob?.cancelRequested));
-  const result = await chrome.scripting.executeScript({ target: { tabId, frameIds: [ready.frameId] }, func: captureOfflinePage, args: [entry.id] });
+  const ready = await waitForEntryReady(tabId, entry, () => Boolean(offlineJob?.cancelRequested));
+  const result = await chrome.scripting.executeScript({ target: { tabId, frameIds: [ready.frameId] }, func: captureOfflinePage, args: [entry.id, entry.type] });
   const page = result[0]?.result;
   if (!page?.html || page.id !== entry.id) throw new Error(`No verified rendered HTML snapshot was captured for ${entry.id}.`);
   return { ...page, status: 'SCANNED', readiness: { frameId: ready.frameId, id: ready.id, rootSelector: ready.matchedRootSelector, textLength: ready.length } };
@@ -873,17 +878,22 @@ async function exportOffline(message) {
     if (Number.isInteger(previousOfflineJob.ownedTabId)) throw new Error(`Cannot start until exporter-owned crawler tab ${previousOfflineJob.ownedTabId} is closed.`);
     await loadJob();
     if (figmaCssExportActive || currentExport || (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state))) { offlineStarting = false; return { ok: false, error: 'Wait for the current Storybook or Figma export to finish.' }; }
-    source = await sourceTabContext({ docsOnly: message.scope === 'current' });
+    scope = ['all', 'catalog'].includes(message.scope) ? message.scope : 'current';
+    source = await sourceTabContext({ docsOnly: scope === 'current' });
     sourceOrigin = new URL(source.tabUrl).origin;
     await cleanupOfflineStaging('', now() - 7 * 24 * 60 * 60 * 1000).catch(() => {});
-    scope = message.scope === 'all' ? 'all' : 'current';
     id = new URL(source.tabUrl).searchParams.get('path')?.match(/^\/docs\/(.+)$/)?.[1] || new URL(source.tabUrl).searchParams.get('id') || '';
     if (scope === 'current' && !id) throw new Error('The source tab does not identify the current Storybook Docs entry.');
-    offlineJob = { id: `offline-${now()}`, kind: 'offline-static', scope, sourceUrl: StorybookOffline.sanitizeUrl(source.tabUrl), origin: sourceOrigin, state: 'discovering', phaseCode: 'DISCOVERING_PAGES', phase: 'Discovering Docs pages', startedAt: now(), pages: { discovered: scope === 'current' ? 1 : 0, selected: scope === 'current' ? 1 : 0, scanning: 0, scanned: 0, staticReady: 0, partial: 0, failed: 0 }, assets: { discovered: 0, queued: 0, downloading: 0, downloaded: 0, failed: 0, skipped: 0, deduplicated: 0, downloadedBytes: 0 }, snapshotBytes: 0, currentPage: '', currentAsset: '', warnings: [], percent: 1, ownedTabId: null };
+    offlineJob = { id: `offline-${now()}`, kind: 'offline-static', scope, sourceUrl: StorybookOffline.sanitizeUrl(source.tabUrl), origin: sourceOrigin, state: 'discovering', phaseCode: 'DISCOVERING_PAGES', phase: 'Discovering Storybook pages', startedAt: now(), pages: { discovered: scope === 'current' ? 1 : 0, selected: scope === 'current' ? 1 : 0, scanning: 0, scanned: 0, staticReady: 0, partial: 0, failed: 0 }, assets: { discovered: 0, queued: 0, downloading: 0, downloaded: 0, failed: 0, skipped: 0, deduplicated: 0, downloadedBytes: 0 }, snapshotBytes: 0, currentPage: '', currentAsset: '', warnings: [], percent: 1, ownedTabId: null };
     await notifyOfflineJob();
   } catch (error) {
     offlineStarting = false;
     throw error;
+  }
+  const crawlBase = new URL(source.tabUrl);
+  if (scope === 'catalog') {
+    for (const key of ['args', 'globals', 'id', 'viewMode']) crawlBase.searchParams.delete(key);
+    if (crawlBase.pathname.endsWith('/iframe.html')) crawlBase.pathname = crawlBase.pathname.slice(0, -'iframe.html'.length);
   }
   offlineRunner = (async () => {
     let ownedTab = null;
@@ -893,7 +903,7 @@ async function exportOffline(message) {
           if (!await removeOfflineOwnedTab(ownedTab.id)) throw new Error(`Could not close exporter-owned crawler tab ${ownedTab.id} at the pause boundary.`);
           ownedTab = null; offlineJob.ownedTabId = null;
         }
-        offlineJob.state = 'paused'; offlineJob.phaseCode = 'PAUSED'; offlineJob.phase = 'Paused between Docs pages; owned crawl tab closed'; await notifyOfflineJob(); await new Promise((resolve) => setTimeout(resolve, 150));
+        offlineJob.state = 'paused'; offlineJob.phaseCode = 'PAUSED'; offlineJob.phase = 'Paused between pages; owned crawl tab closed'; await notifyOfflineJob(); await new Promise((resolve) => setTimeout(resolve, 150));
       }
       if (offlineJob.cancelRequested) throw new Error('Offline export cancelled.');
     };
@@ -903,12 +913,16 @@ async function exportOffline(message) {
       if (scope === 'current') {
         entries = [{ id, title: id, name: 'Docs', type: 'docs', tags: [] }]; discoveredCount = 1;
       } else {
-        const found = await discover(source.tabId, source.tabUrl);
+        const found = await discover(source.tabId, source.tabUrl, scope === 'catalog');
         entries = found.entries; discoveredCount = found.discovered;
         offlineJob.pages.discovered = discoveredCount; offlineJob.pages.selected = entries.length;
+        if (scope === 'catalog') {
+          offlineJob.pages.stories = entries.filter((entry) => entry.type === 'story').length;
+          offlineJob.pages.docs = entries.length - offlineJob.pages.stories;
+        }
         offlineJob.percent = 10;
         if (discoveredCount > entries.length) offlineJob.warnings.push(`${discoveredCount - entries.length} Docs entries omitted by the 120-entry safety cap.`);
-        if (!entries.length) throw new Error('No Storybook Docs entries were discovered.');
+        if (!entries.length) throw new Error('No Storybook entries were discovered for this scope.');
         ownedTab = await chrome.tabs.create({ url: 'about:blank', active: false });
         offlineJob.ownedTabId = ownedTab.id;
         await notifyOfflineJob();
@@ -916,20 +930,20 @@ async function exportOffline(message) {
       const pages = [];
       for (const entry of entries) {
         await waitAtPageBoundary();
-        if (scope === 'all' && !ownedTab) { ownedTab = await chrome.tabs.create({ url: 'about:blank', active: false }); offlineJob.ownedTabId = ownedTab.id; await notifyOfflineJob(); }
-        offlineJob.state = 'scanning'; offlineJob.phaseCode = 'SCANNING_PAGES'; offlineJob.phase = 'Capturing rendered Docs'; offlineJob.currentPage = `${entry.title || entry.id} (${entry.id})`; offlineJob.pages.scanning++; await notifyOfflineJob();
+        if (scope !== 'current' && !ownedTab) { ownedTab = await chrome.tabs.create({ url: 'about:blank', active: false }); offlineJob.ownedTabId = ownedTab.id; await notifyOfflineJob(); }
+        offlineJob.state = 'scanning'; offlineJob.phaseCode = 'SCANNING_PAGES'; offlineJob.phase = 'Capturing rendered Storybook pages'; offlineJob.currentPage = `${entry.title || entry.id} (${entry.id})`; offlineJob.pages.scanning++; await notifyOfflineJob();
+        const categoryEvidence = categoryFor(entry);
+        const metadata = { id: entry.id, title: entry.title || entry.id, type: entry.type, name: entry.name || '', tags: entry.tags || [], category: entry.category || categoryEvidence.category, categorySource: entry.categorySource || categoryEvidence.source, categoryConfidence: entry.categoryConfidence || categoryEvidence.confidence, categoryEvidence: entry.categoryEvidence || categoryEvidence.evidence };
         try {
-          const page = await offlineCapturePage(scope === 'current' ? source.tabId : ownedTab.id, entry, source.tabUrl, scope === 'current');
-          const categoryEvidence = categoryFor(entry);
-          page.entry = { id: entry.id, title: entry.title || page.title, name: entry.name || '', tags: entry.tags || [], category: entry.category || categoryEvidence.category, categorySource: entry.categorySource || categoryEvidence.source, categoryConfidence: entry.categoryConfidence || categoryEvidence.confidence, categoryEvidence: entry.categoryEvidence || categoryEvidence.evidence };
+          const page = await offlineCapturePage(scope === 'current' ? source.tabId : ownedTab.id, entry, crawlBase.href, scope === 'current');
           const pageBytes = new TextEncoder().encode(page.html).byteLength;
-          if (offlineJob.snapshotBytes + pageBytes > 16 * 1024 * 1024) {
-            pages.push({ id: entry.id, title: entry.title || page.title, url: page.url, status: 'FAILED', error: 'Rendered Docs snapshots exceed the 16 MiB total snapshot limit.' }); offlineJob.pages.failed++;
-          } else {
-            offlineJob.snapshotBytes += pageBytes; pages.push(page); offlineJob.pages.scanned++;
-          }
+          if (offlineJob.snapshotBytes + pageBytes > 16 * 1024 * 1024) throw new Error('Rendered page snapshots exceed the 16 MiB total snapshot limit.');
+          offlineJob.snapshotBytes += pageBytes;
+          pages.push({ ...page, entry: metadata });
+          offlineJob.pages.scanned++;
         } catch (error) {
-          pages.push({ id: entry.id, title: entry.title || entry.id, url: buildDocsUrl(source.tabUrl, entry.id), status: 'FAILED', error: offlineSafeError(error) }); offlineJob.pages.failed++;
+          pages.push({ id: entry.id, title: metadata.title, entry: metadata, url: buildEntryUrl(crawlBase.href, entry.id, entry.type), status: 'FAILED', error: offlineSafeError(error) });
+          offlineJob.pages.failed++;
         }
         offlineJob.pages.scanning--; await notifyOfflineJob();
         offlineJob.percent = 10 + Math.floor((offlineJob.pages.scanned + offlineJob.pages.failed) / Math.max(1, entries.length) * 35);

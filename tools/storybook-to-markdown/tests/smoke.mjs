@@ -207,11 +207,12 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     },
     scripting: {
       executeScript: async ({ target, func, args = [] }) => {
-        if (args.length === 1 && typeof args[0] === 'string' && args[0].startsWith('http')) return [{ frameId: 0, result: await func(args[0]) }];
+        if (typeof args[0] === 'string' && args[0].startsWith('http')) return [{ frameId: 0, result: await func(...args) }];
         if (func.name === 'captureOfflinePage') {
           const id = args[0];
           const tab = target.tabId === 1 ? sourceTab : tabs.get(target.tabId);
-          const frameUrl = tab?.url || mainContext.location.href;
+          const managerUrl = tab?.url || mainContext.location.href;
+          const frameUrl = args[1] === 'story' ? new URL(`iframe.html?id=${id}&viewMode=story`, managerUrl).href : managerUrl;
           mainContext.location = new URL(frameUrl);
           const html = offlineFixture?.html ? offlineFixture.html(id) : `<!doctype html><html><head><meta charset="utf-8"></head><body><main class="sbdocs-wrapper"><h1>${id}</h1><p>Rendered fixture Docs content for ${id}.</p></main></body></html>`;
           return [{ frameId: target.frameIds?.[0] ?? 0, result: { id, title: id, url: frameUrl, html, frameUrl, frameTitle: 'Storybook Docs', rootSelector: '.sbdocs-wrapper', performanceResources: [] } }];
@@ -222,7 +223,10 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
           const id = args[0];
           attempts.set(id, (attempts.get(id) || 0) + 1);
           if (failedIds.has(id)) throw new Error('Synthetic frame access failure.');
-          const frames = readinessFrames || [{ frameId: 0, routeType: 'main', root: true, text: `${id} documentation text with stable rendered content` }];
+          const story = args[1] === 'story';
+          const frames = readinessFrames || (story
+            ? [{ frameId: 0, routeType: 'main', root: true }, { frameId: 3, routeType: 'iframe', root: true, rootSelector: '#storybook-root', text: '' }]
+            : [{ frameId: 0, routeType: 'main', root: true, text: `${id} documentation text with stable rendered content` }]);
           return frames.map((frame) => {
             const frameId = frame.frameId;
             const sampleKey = `${id}:${frameId}`;
@@ -230,11 +234,12 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
             probeCounts.set(sampleKey, count + 1);
             const resolvedId = frame.id === '$expected' || !frame.id ? id : frame.id;
             const url = frame.routeType === 'iframe'
-              ? `https://storybook.test/storybook/iframe.html?id=${encodeURIComponent(resolvedId)}&viewMode=docs`
-              : `https://storybook.test/storybook/?path=/docs/${encodeURIComponent(resolvedId)}`;
+              ? `https://storybook.test/storybook/iframe.html?id=${encodeURIComponent(resolvedId)}&viewMode=${story ? 'story' : 'docs'}`
+              : `https://storybook.test/storybook/?path=/${story ? 'story' : 'docs'}/${encodeURIComponent(resolvedId)}`;
             const samples = frame.textSamples || [];
             const value = samples[Math.min(count, Math.max(samples.length - 1, 0))] ?? frame.text ?? `${id} documentation text with stable rendered content`;
             const root = frame.root ? {
+              childElementCount: 1, innerHTML: story ? '<svg></svg>' : value,
               innerText: value,
               textContent: value,
               matches: (selector) => selector === '[aria-busy="true"]' && Boolean(frame.rootBusy),
@@ -245,7 +250,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
               location: new URL(url),
               document: { title: 'Storybook Docs', querySelector: (selector) => frame.root && selector === (frame.rootSelector || '.sbdocs-wrapper') ? root : null },
             });
-            const result = vm.runInContext(`(${func.toString()})(${JSON.stringify(id)})`, frameContext);
+            const result = vm.runInContext(`(${func.toString()})(...${JSON.stringify(args)})`, frameContext);
             return { frameId, result };
           });
         }
@@ -728,6 +733,36 @@ assert(offlineAllPaths.has('ASSET_MANIFEST.json'));
 assert(offlineAllPaths.has('OFFLINE_REPORT.md'));
 assert.equal([...offlineAllPaths].filter((name) => /^pages\/.+\.html$/.test(name)).length, defaultEntries().length);
 assert.equal(offlineAllHarness.tabs.size, 0, 'All Docs coordinator removes only its owned crawler tab');
+
+const catalogEntries = [
+  { id: 'components-dialog--docs', type: 'docs', title: 'Components/Dialog', name: 'Docs' },
+  { id: 'components-dialog--default', type: 'story', title: 'Components/Dialog', name: 'Default' },
+  { id: 'components-dialog--no-close-button', type: 'story', title: 'Components/Dialog', name: 'No Close Button' },
+];
+const catalogHarness = await makeHarness({
+  entries: catalogEntries, realZip: true, offlineFixture: {
+    html: (id) => `<!doctype html><html><body><div id="storybook-root"><svg></svg><a href="/storybook/?path=/story/components-dialog--no-close-button#example">Example</a></div><h1>${id}</h1></body></html>`,
+  },
+});
+catalogHarness.setSourceTab({ id: 1, url: 'https://storybook.test/storybook/?path=/story/components-dialog--default&args=variant:other', status: 'complete' });
+const catalogResponse = await catalogHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });
+assert.equal(catalogResponse.ok, true, catalogResponse.error);
+assert.equal(catalogResponse.job.pages.docs, 1);
+assert.equal(catalogResponse.job.pages.stories, 2);
+assert.equal(catalogResponse.job.pages.staticReady, 3);
+assert.equal(catalogResponse.pages.find(({ id }) => id.endsWith('--default')).frame.frameId, 3);
+assert.deepEqual(catalogHarness.navigationUrls.map((url) => new URL(url).searchParams.get('path')), [
+  '/docs/components-dialog--docs', '/story/components-dialog--default', '/story/components-dialog--no-close-button',
+]);
+assert(catalogHarness.navigationUrls.every((url) => !new URL(url).searchParams.has('args')));
+const catalogMembers = readZip(Buffer.from(await catalogHarness.zipArchives[0].blob.arrayBuffer()));
+const catalogFile = (path) => new TextDecoder().decode(catalogMembers.find((file) => file.path === path).bytes);
+const catalogIndex = catalogFile('index.html');
+assert.match(catalogIndex, /components-dialog--default\.html">Default</);
+assert.match(catalogIndex, /components-dialog--no-close-button\.html">No Close Button</);
+assert.match(catalogFile('pages/components-dialog--docs.html'), /href="components-dialog--no-close-button\.html#example"/);
+assert.deepEqual(JSON.parse(catalogFile('manifest.json')).pages.map((page) => page.type), ['docs', 'story', 'story']);
+assert.equal(catalogHarness.tabs.size, 0, 'catalog export closes its owned crawler tab');
 
 const offlineFixture = {
   html: (id) => `<!doctype html><html><head><link rel="stylesheet" href="/offline.css"><script src="/bundle.js"></script></head><body><main class="sbdocs-wrapper"><h1>${id}</h1><img src="/shared.png"><img src="/icon.svg#mark"><img src="/missing.png"><img src="/secret.png?token=fixture-secret"><img src="https://external.test/private.png"><a href="/?path=/docs/guide--docs">Guide</a></main></body></html>`,
