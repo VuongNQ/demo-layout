@@ -301,11 +301,25 @@ function buildEntryUrl(sourceUrl, id, type = 'docs') {
   return target.href;
 }
 
+function buildPreviewUrl(sourceUrl, entry, scope) {
+  const source = new URL(sourceUrl);
+  if (!source.pathname.endsWith('/') && !/\.html?$/i.test(source.pathname)) source.pathname += '/';
+  const preview = new URL('iframe.html', source);
+  preview.searchParams.set('id', entry.id);
+  preview.searchParams.set('viewMode', entry.type);
+  if (scope !== 'catalog') {
+    for (const key of ['args', 'globals']) {
+      for (const value of source.searchParams.getAll(key)) preview.searchParams.append(key, value);
+    }
+  }
+  return preview.href;
+}
+
 function matchesEntryUrl(url, target) {
   try {
     const actual = new URL(url);
     const expected = new URL(target);
-    return actual.origin === expected.origin && actual.pathname === expected.pathname && actual.searchParams.get('path') === expected.searchParams.get('path');
+    return actual.origin === expected.origin && actual.pathname === expected.pathname && ['path', 'id', 'viewMode', 'args', 'globals'].every((key) => JSON.stringify(actual.searchParams.getAll(key)) === JSON.stringify(expected.searchParams.getAll(key)));
   } catch { return false; }
 }
 
@@ -331,7 +345,7 @@ function navigateTab(tabId, target) {
   });
 }
 
-function inspectDocsReadiness(expectedId, type = 'docs') {
+function inspectDocsReadiness(expectedId, type = 'docs', directPreview = false) {
   const params = new URLSearchParams(location.search);
   const route = params.get('path') || '';
   const iframeId = params.get('id') || '';
@@ -339,8 +353,9 @@ function inspectDocsReadiness(expectedId, type = 'docs') {
   const prefix = `/${type}/`;
   const routeId = route.startsWith(prefix) ? route.slice(prefix.length) : '';
   const id = routeId || iframeId;
-  const routeMatches = type === 'story' ? viewMode === 'story' && iframeId === expectedId : routeId === expectedId || (viewMode === 'docs' && iframeId === expectedId);
+  const routeMatches = directPreview || type === 'story' ? viewMode === type && iframeId === expectedId : routeId === expectedId || (viewMode === 'docs' && iframeId === expectedId);
   const rootSelectors = type === 'story' ? ['#storybook-root'] : ['.sbdocs-wrapper', '.sbdocs-content', '#storybook-docs', '[data-testid="storybook-docs"]'];
+  if (directPreview && type === 'docs') rootSelectors.unshift('#storybook-docs');
   const matchedRootSelector = rootSelectors.find((selector) => document.querySelector(selector)) || '';
   const root = matchedRootSelector ? document.querySelector(matchedRootSelector) : null;
   if (!root || !routeMatches) return { ready: false, id, route, viewMode, matchedRootSelector, length: 0, busySelectors: [], reason: !routeMatches ? 'entry-id-mismatch' : `${type}-root-absent` };
@@ -358,18 +373,19 @@ function inspectDocsReadiness(expectedId, type = 'docs') {
   const substantive = type === 'story'
     ? !storyBlocked && Boolean(root.childElementCount || value && !placeholderOnly)
     : value.length > 0 && !placeholderOnly;
+  const fontsReady = !directPreview || document.fonts?.status !== 'loading';
   const content = type === 'story' ? root.innerHTML : value;
   let textHash = 2166136261;
   for (let index = 0; index < content.length; index++) textHash = Math.imul(textHash ^ content.charCodeAt(index), 16777619);
   return {
-    ready: routeMatches && Boolean(root) && substantive,
+    ready: substantive && fontsReady,
     id,
     route,
     viewMode,
     matchedRootSelector,
     length: value.length,
     busySelectors,
-    reason: substantive ? (busySelectors.length ? 'content-visible-with-busy-marker' : 'content-visible') : 'content-empty-or-placeholder',
+    reason: !fontsReady ? 'fonts-loading' : substantive ? (busySelectors.length ? 'content-visible-with-busy-marker' : 'content-visible') : 'content-empty-or-placeholder',
     signature: `${document.title}|${content.length}|${textHash >>> 0}`,
   };
 }
@@ -381,12 +397,14 @@ async function waitForEntryReady(tabId, entry, isCancelled = () => Boolean(job?.
   let lastFrames = [];
   let captureIssue = '';
   let samples = [];
+  const directPreview = Boolean(capture);
+  const target = directPreview ? { tabId, frameIds: [0] } : { tabId, allFrames: true };
   while (now() - started < READINESS_TIMEOUT_MS) {
     if (isCancelled()) throw new Error('Cancelled after active page settled.');
-    const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectDocsReadiness, args: [entry.id, entry.type || 'docs'] });
+    const results = await chrome.scripting.executeScript({ target, func: inspectDocsReadiness, args: [entry.id, entry.type || 'docs', directPreview] });
     lastFrames = results.map(({ frameId, documentId, result }) => ({ frameId, documentId, ...result }));
     const probes = lastFrames.filter((result) => result.ready);
-    probes.sort((a, b) => (capture ? Number(b.viewMode === 'docs') - Number(a.viewMode === 'docs') : 0) || a.frameId - b.frameId);
+    probes.sort((a, b) => a.frameId - b.frameId);
     if (probes.length) {
       const selected = probes[0];
       const signature = `${selected.documentId || selected.frameId}:${selected.id}:${selected.matchedRootSelector}:${selected.signature}`;
@@ -775,19 +793,43 @@ async function downloadCurrent(message) {
 function captureOfflinePage(expectedId, type, selector, maxPageBytes) {
   try {
     const params = new URLSearchParams(location.search);
-    const route = params.get('path') || '';
-    const storyId = type === 'docs' && route.startsWith('/docs/') ? route.slice('/docs/'.length) : params.get('viewMode') === type ? params.get('id') : '';
+    const storyId = params.get('viewMode') === type ? params.get('id') : '';
     const root = document.querySelector(selector);
     if (!root || storyId !== expectedId) return { captureError: `Preview changed during capture (expected ${expectedId}, found ${storyId || 'none'}).` };
+    const escape = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
     const title = String(root.querySelector('h1,h2')?.textContent || document.title).trim();
-    const head = [...document.head.children].filter((node) => node.tagName === 'STYLE' || node.tagName === 'LINK' && /stylesheet/i.test(node.rel) || node.tagName === 'META' && (node.hasAttribute('charset') || String(node.getAttribute('name') || '').toLowerCase() === 'viewport')).map((node) => node.outerHTML).join('\n');
-    const performanceResources = performance.getEntriesByType('resource').filter((resource) => ['css', 'img', 'image', 'script', 'font'].includes(resource.initiatorType) && new URL(resource.name, location.href).origin === location.origin).map((resource) => ({ url: resource.name, initiatorType: resource.initiatorType }));
-    const htmlAttrs = ['lang', 'dir', 'class', 'data-theme', 'data-color-scheme'].map((name) => { const value = document.documentElement.getAttribute(name); return value ? `${name}="${value.replace(/[&<>"']/g, '')}"` : ''; }).filter(Boolean).join(' ');
-    const bodyAttrs = ['class', 'data-theme', 'data-color-scheme'].map((name) => { const value = document.body?.getAttribute(name); return value ? `${name}="${value.replace(/[&<>"']/g, '')}"` : ''; }).filter(Boolean).join(' ');
-    const html = `<!doctype html><html ${htmlAttrs}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title.replace(/[&<>"']/g, '')}</title>${head}</head><body ${bodyAttrs}>${root.outerHTML}</body></html>`;
+    const outsideStyles = [...(document.body?.querySelectorAll('style,link[rel~="stylesheet"]') || [])].filter((node) => !root.contains(node));
+    const head = [...document.head.children, ...outsideStyles].filter((node) => node.tagName === 'STYLE' || node.tagName === 'LINK' && /stylesheet/i.test(node.rel)).map((node) => {
+      if (node.tagName !== 'STYLE' || node.textContent?.trim()) return node.outerHTML;
+      try {
+        const css = [...(node.sheet?.cssRules || [])].map((rule) => rule.cssText).join('\n');
+        if (!css) return node.outerHTML;
+        const style = node.cloneNode(false);
+        style.textContent = css.replace(/<\/style/gi, '<\\/style');
+        return style.outerHTML;
+      } catch { return node.outerHTML; }
+    }).join('\n');
+    const resources = performance.getEntriesByType('resource').filter((resource) => new URL(resource.name, location.href).origin === location.origin);
+    const performanceResources = resources.filter(({ initiatorType, name }) => ['css', 'img', 'image', 'font'].includes(initiatorType) ||
+      initiatorType === 'link' && /\.(?:css|woff2?|ttf|otf)(?:[?#]|$)/i.test(name)).map((resource) => ({ url: resource.name, initiatorType: resource.initiatorType }));
+    const scriptUrls = [...new Set([
+      ...[...document.querySelectorAll('script[src], link[rel~="modulepreload"], link[rel~="preload"][as="script"]')].map((node) => node.src || node.href),
+      ...resources.filter((resource) => /\.m?js(?:[?#]|$)/i.test(resource.name)).map((resource) => resource.name),
+    ].filter(Boolean))].slice(0, 1000);
+    const attrs = (node) => ['id', 'lang', 'dir', 'class', 'style', 'data-theme', 'data-mode', 'data-color-scheme', 'data-storybook-theme'].map((name) => {
+      const value = node?.getAttribute(name);
+      return value ? ` ${name}="${escape(value)}"` : '';
+    }).join('');
+    let content = root;
+    for (let parent = root.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+      const wrapper = parent.cloneNode(false);
+      wrapper.append(content.cloneNode(true));
+      content = wrapper;
+    }
+    const html = `<!doctype html><html${attrs(document.documentElement)}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)}</title>${head}</head><body${attrs(document.body)}>${content.outerHTML}</body></html>`;
     const bytes = new TextEncoder().encode(html).byteLength;
     if (bytes > maxPageBytes) return { tooLarge: true, captureError: `Rendered snapshot for ${expectedId} is ${bytes} bytes and exceeds the ${maxPageBytes} byte per-page limit.` };
-    return { id: storyId, title, url: location.href, html, frameUrl: location.href, frameTitle: document.title, rootSelector: selector, performanceResources };
+    return { id: storyId, title, url: location.href, html, frameUrl: location.href, frameTitle: document.title, rootSelector: selector, performanceResources, scriptUrls };
   } catch (error) {
     return { captureError: String(error?.message || error) };
   }
@@ -928,9 +970,8 @@ async function removeOfflineOwnedTab(tabId) {
 function offlineCurrentState() {
   return chrome.storage.local.get(OFFLINE_JOB_KEY).then((stored) => stored[OFFLINE_JOB_KEY] || { state: 'idle', phaseCode: 'IDLE' });
 }
-async function offlineCapturePage(tabId, entry, sourceUrl, isCurrent) {
-  const target = isCurrent ? sourceUrl : buildEntryUrl(sourceUrl, entry.id, entry.type);
-  if (!isCurrent) await navigateTab(tabId, target);
+async function offlineCapturePage(tabId, entry, previewUrl) {
+  await navigateTab(tabId, previewUrl);
   const ready = await waitForEntryReady(tabId, entry, () => Boolean(offlineJob?.cancelRequested), async (frame) => {
     const target = frame.documentId ? { tabId, documentIds: [frame.documentId] } : { tabId, frameIds: [frame.frameId] };
     const results = await chrome.scripting.executeScript({
@@ -941,6 +982,32 @@ async function offlineCapturePage(tabId, entry, sourceUrl, isCurrent) {
   });
   return { ...ready.page, status: 'SCANNED', readiness: { frameId: ready.frameId, id: ready.id, rootSelector: ready.matchedRootSelector, textLength: ready.length } };
 }
+async function readCachedPreviewScript(url, maxBytes) {
+  try {
+    const target = new URL(url);
+    if (target.origin !== location.origin) return null;
+    const response = await fetch(target.href, { mode: 'same-origin', cache: 'only-if-cached', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(5000) });
+    if (!response.ok || !response.body) return null;
+    const reader = response.body.getReader();
+    const chunks = [];
+    let length = 0;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        length += value.length;
+        if (length > maxBytes) return null;
+        chunks.push(value);
+      }
+    } finally { await reader.cancel().catch(() => {}); }
+    const parts = [];
+    for (const chunk of chunks) {
+      for (let i = 0; i < chunk.length; i += 16384) parts.push(String.fromCharCode(...chunk.subarray(i, i + 16384)));
+    }
+    return { data: btoa(parts.join('')), mime: response.headers.get('Content-Type') || '' };
+  } catch { return null; }
+}
+
 async function downloadOfflineArchive(files, filename) {
   const url = await createZipUrl(files, offlineJob.id);
   let downloaded = false;
@@ -1000,21 +1067,19 @@ async function exportOffline(message) {
     await loadJob();
     if (figmaCssExportActive || currentExport || (job && ['discovering', 'crawling', 'processing', 'compressing'].includes(job.state))) { offlineStarting = false; return { ok: false, error: 'Wait for the current Storybook or Figma export to finish.' }; }
     scope = ['all', 'catalog'].includes(message.scope) ? message.scope : 'current';
-    source = await sourceTabContext({ docsOnly: scope === 'current' });
+    source = await sourceTabContext();
     sourceOrigin = new URL(source.tabUrl).origin;
     await cleanupOfflineStaging('', now() - OFFLINE_CACHE_TTL_MS).catch(() => {});
-    id = new URL(source.tabUrl).searchParams.get('path')?.match(/^\/docs\/(.+)$/)?.[1] || new URL(source.tabUrl).searchParams.get('id') || '';
+    const sourceUrl = new URL(source.tabUrl);
+    const params = sourceUrl.searchParams;
+    id = params.get('path')?.match(/^\/docs\/(.+)$/)?.[1] ||
+      (sourceUrl.pathname.endsWith('/iframe.html') && params.get('viewMode') === 'docs' ? params.get('id') : '');
     if (scope === 'current' && !id) throw new Error('The source tab does not identify the current Storybook Docs entry.');
     offlineJob = { id: `offline-${crypto.randomUUID()}`, kind: 'offline-static', scope, sourceUrl: StorybookOffline.sanitizeUrl(source.tabUrl), origin: sourceOrigin, state: 'discovering', phaseCode: 'DISCOVERING_PAGES', phase: 'Discovering Storybook pages', startedAt: now(), pages: { discovered: scope === 'current' ? 1 : 0, selected: scope === 'current' ? 1 : 0, scanning: 0, scanned: 0, reused: 0, staticReady: 0, partial: 0, failed: 0 }, assets: { discovered: 0, queued: 0, downloading: 0, downloaded: 0, failed: 0, skipped: 0, deduplicated: 0, downloadedBytes: 0 }, snapshotBytes: 0, currentPage: '', currentAsset: '', warnings: [], percent: 1, ownedTabId: null };
     await notifyOfflineJob();
   } catch (error) {
     offlineStarting = false;
     throw error;
-  }
-  const crawlBase = new URL(source.tabUrl);
-  if (scope === 'catalog') {
-    for (const key of ['args', 'globals', 'id', 'viewMode']) crawlBase.searchParams.delete(key);
-    if (crawlBase.pathname.endsWith('/iframe.html')) crawlBase.pathname = crawlBase.pathname.slice(0, -'iframe.html'.length);
   }
   offlineRunner = (async () => {
     let ownedTab = null;
@@ -1060,34 +1125,29 @@ async function exportOffline(message) {
         offlineJob.state = 'scanning'; offlineJob.phaseCode = 'SCANNING_PAGES'; offlineJob.phase = 'Capturing rendered Storybook pages'; offlineJob.currentPage = `${entry.title || entry.id} (${entry.id})`; offlineJob.pages.scanning++; await notifyOfflineJob();
         const categoryEvidence = categoryFor(entry);
         const metadata = { id: entry.id, title: entry.title || entry.id, type: entry.type, name: entry.name || '', tags: entry.tags || [], category: entry.category || categoryEvidence.category, categorySource: entry.categorySource || categoryEvidence.source, categoryConfidence: entry.categoryConfidence || categoryEvidence.confidence, categoryEvidence: entry.categoryEvidence || categoryEvidence.evidence };
+        const target = buildPreviewUrl(source.tabUrl, entry, scope);
         try {
-          const target = new URL(scope === 'current' ? source.tabUrl : buildEntryUrl(crawlBase.href, entry.id, entry.type));
-          target.searchParams.sort();
           const cacheKey = `page:${entry.type}:${entry.id}`;
-          const cached = await readOfflinePageCache(pageCache, cacheKey, target.href, entry).catch(disablePageCache);
-          if (!cached && scope !== 'current' && !ownedTab) {
+          const cached = await readOfflinePageCache(pageCache, cacheKey, target, entry).catch(disablePageCache);
+          if (!cached && !ownedTab) {
             ownedTab = await chrome.tabs.create({ url: 'about:blank', active: false });
             offlineJob.ownedTabId = ownedTab.id;
             await notifyOfflineJob();
           }
-          const page = cached || await offlineCapturePage(scope === 'current' ? source.tabId : ownedTab.id, entry, crawlBase.href, scope === 'current');
+          const page = cached || await offlineCapturePage(ownedTab.id, entry, target);
           const pageBytes = new TextEncoder().encode(page.html).byteLength;
           if (offlineJob.snapshotBytes + pageBytes > StorybookOffline.MAX_PAGES_TOTAL_BYTES) throw new Error('Rendered page snapshots exceed the 16 MiB total snapshot limit.');
           offlineJob.snapshotBytes += pageBytes;
           pages.push({ ...page, entry: metadata });
           if (cached) offlineJob.pages.reused++;
-          else await writeOfflinePageCache(pageCache, cacheKey, target.href, page, pageBytes).catch(disablePageCache);
+          else await writeOfflinePageCache(pageCache, cacheKey, target, page, pageBytes).catch(disablePageCache);
           offlineJob.pages.scanned++;
         } catch (error) {
-          pages.push({ id: entry.id, title: metadata.title, entry: metadata, url: buildEntryUrl(crawlBase.href, entry.id, entry.type), status: 'FAILED', error: offlineSafeError(error) });
+          pages.push({ id: entry.id, title: metadata.title, entry: metadata, url: target, status: 'FAILED', error: offlineSafeError(error) });
           offlineJob.pages.failed++;
         }
         offlineJob.pages.scanning--; await notifyOfflineJob();
         offlineJob.percent = 10 + Math.floor((offlineJob.pages.scanned + offlineJob.pages.failed) / Math.max(1, entries.length) * 35);
-      }
-      if (ownedTab?.id) {
-        if (!await removeOfflineOwnedTab(ownedTab.id)) throw new Error(`Could not close exporter-owned crawler tab ${ownedTab.id} after page scanning.`);
-        ownedTab = null; offlineJob.ownedTabId = null;
       }
       await waitAtPageBoundary();
       offlineJob.state = 'discovering-assets'; offlineJob.phaseCode = 'DISCOVERING_ASSETS'; offlineJob.phase = 'Discovering static resources'; offlineJob.percent = 50; await notifyOfflineJob();
@@ -1104,6 +1164,14 @@ async function exportOffline(message) {
         onPauseState: (paused) => { offlineJob.state = paused ? 'paused' : 'downloading-assets'; offlineJob.phaseCode = paused ? 'PAUSED' : 'DOWNLOADING_ASSETS'; offlineJob.phase = paused ? 'Paused after in-flight asset requests settled' : 'Resumed asset downloads'; void notifyOfflineJob(); },
         onAssetDiscovered: (asset) => { offlineJob.assets.discovered++; if (asset.status === 'SKIPPED') offlineJob.assets.skipped++; scheduleOfflineProgress(); },
         onPhase: (phase) => { offlineJob.state = phase; offlineJob.phaseCode = phase === 'rewriting-references' ? 'REWRITING_REFERENCES' : 'GENERATING_OFFLINE_SITE'; offlineJob.phase = phase === 'rewriting-references' ? 'Rewriting downloaded asset references' : 'Generating offline HTML and local navigation'; void notifyOfflineJob(); },
+        fetchCachedScript: async (url, maxBytes) => {
+          const tabId = ownedTab?.id ?? source.tabId;
+          const [{ result } = {}] = await chrome.scripting.executeScript({
+            target: { tabId, frameIds: [0] }, func: readCachedPreviewScript, args: [url, maxBytes],
+          });
+          if (!result) return null;
+          return new Response(Uint8Array.from(atob(result.data), (character) => character.charCodeAt(0)), { headers: { 'Content-Type': result.mime } });
+        },
         loadStagedAsset: (entry) => getStagedOfflineAsset(sourceOrigin, entry),
         stageAsset: (entry) => putStagedOfflineAsset(sourceOrigin, entry),
         maxResourceBytes: 4 * 1024 * 1024,

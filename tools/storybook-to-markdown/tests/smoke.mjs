@@ -211,6 +211,20 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     },
     scripting: {
       executeScript: async ({ target, func, args = [] }) => {
+        if (func.name === 'readCachedPreviewScript') {
+          const tab = tabs.get(target.tabId) || sourceTab;
+          const context = vm.createContext({
+            URL, AbortSignal, Uint8Array, btoa, location: new URL(tab.url),
+            fetch: async (url, options) => {
+              assert.equal(options.cache, 'only-if-cached');
+              assert.equal(options.mode, 'same-origin');
+              assert.equal(options.credentials, 'omit');
+              const script = offlineFixture?.cachedScripts?.get(url);
+              return script ? new Response(script, { headers: { 'Content-Type': 'text/javascript' } }) : new Response(null, { status: 504 });
+            },
+          });
+          return [{ frameId: 0, result: await vm.runInContext(`(${func.toString()})(...${JSON.stringify(args)})`, context) }];
+        }
         if (typeof args[0] === 'string' && args[0].startsWith('http')) return [{ frameId: 0, result: await func(...args) }];
         if (func.name === 'captureOfflinePage') {
           const id = args[0];
@@ -218,10 +232,10 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
           if (offlineFixture?.capture) return offlineFixture.capture({ func, args, target, attempt: captureCalls.length });
           const tab = target.tabId === 1 ? sourceTab : tabs.get(target.tabId);
           const managerUrl = tab?.url || mainContext.location.href;
-          const frameUrl = args[1] === 'story' ? new URL(`iframe.html?id=${id}&viewMode=story`, managerUrl).href : managerUrl;
+          const frameUrl = managerUrl;
           mainContext.location = new URL(frameUrl);
           const html = offlineFixture?.html ? offlineFixture.html(id) : `<!doctype html><html><head><meta charset="utf-8"></head><body><main class="sbdocs-wrapper"><h1>${id}</h1><p>Rendered fixture Docs content for ${id}.</p></main></body></html>`;
-          return [{ frameId: target.frameIds?.[0] ?? 0, result: { id, title: id, url: frameUrl, html, frameUrl, frameTitle: 'Storybook Docs', rootSelector: '.sbdocs-wrapper', performanceResources: [] } }];
+          return [{ frameId: target.frameIds?.[0] ?? 0, result: { id, title: id, url: frameUrl, html, frameUrl, frameTitle: 'Storybook Docs', rootSelector: args[2], performanceResources: [], scriptUrls: offlineFixture?.scriptUrls || [] } }];
         }
         const tab = tabs.get(target.tabId);
         if (tab?.url && tab.url !== 'about:blank') mainContext.location = new URL(tab.url);
@@ -230,16 +244,21 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
           attempts.set(id, (attempts.get(id) || 0) + 1);
           if (failedIds.has(id)) throw new Error('Synthetic frame access failure.');
           const story = args[1] === 'story';
-          const frames = readinessFrames || (story
+          const direct = args[2] === true;
+          const frames = readinessFrames || (direct
+            ? [{ frameId: 0, routeType: 'iframe', root: true, rootSelector: story ? '#storybook-root' : '#storybook-docs', text: story ? '' : undefined }]
+            : story
             ? [{ frameId: 0, routeType: 'main', root: true }, { frameId: 3, routeType: 'iframe', root: true, rootSelector: '#storybook-root', text: '' }]
             : [{ frameId: 0, routeType: 'main', root: true, text: `${id} documentation text with stable rendered content` }]);
-          return frames.map((frame) => {
+          return frames.filter((frame) => target.allFrames || target.frameIds.includes(frame.frameId)).map((frame) => {
             const frameId = frame.frameId;
             const sampleKey = `${id}:${frameId}`;
             const count = probeCounts.get(sampleKey) || 0;
             probeCounts.set(sampleKey, count + 1);
             const resolvedId = frame.id === '$expected' || !frame.id ? id : frame.id;
-            const url = frame.routeType === 'iframe'
+            const url = direct && frame.routeType === 'iframe' && resolvedId === id
+              ? tab.url
+              : frame.routeType === 'iframe'
               ? `https://storybook.test/storybook/iframe.html?id=${encodeURIComponent(resolvedId)}&viewMode=${story ? 'story' : 'docs'}`
               : `https://storybook.test/storybook/?path=/${story ? 'story' : 'docs'}/${encodeURIComponent(resolvedId)}`;
             const samples = frame.textSamples || [];
@@ -295,7 +314,7 @@ async function makeHarness({ entries = defaultEntries(), delay = 4, readinessFra
     },
   };
   const context = vm.createContext({
-    chrome, URL, URLSearchParams, TextEncoder, TextDecoder, Uint8Array, Uint32Array, DataView, Blob, structuredClone, AbortController,
+    chrome, URL, URLSearchParams, TextEncoder, TextDecoder, Uint8Array, Uint32Array, DataView, Blob, structuredClone, AbortController, Response, atob,
     setTimeout, clearTimeout, console, document,
     getComputedStyle: (element) => ({
       length: element === document.documentElement ? 1 : 0,
@@ -761,8 +780,11 @@ assert.equal(catalogResponse.ok, true, catalogResponse.error);
 assert.equal(catalogResponse.job.pages.docs, 1);
 assert.equal(catalogResponse.job.pages.stories, 2);
 assert.equal(catalogResponse.job.pages.staticReady, 3);
-assert.deepEqual(catalogHarness.navigationUrls.map((url) => new URL(url).searchParams.get('path')), [
-  '/docs/components-dialog--docs', '/story/components-dialog--default', '/story/components-dialog--no-close-button',
+assert.deepEqual(catalogHarness.navigationUrls.map((url) => new URL(url).pathname), Array(3).fill('/storybook/iframe.html'));
+assert.deepEqual(catalogHarness.navigationUrls.map((url) => [...new URL(url).searchParams]), [
+  [['id', 'components-dialog--docs'], ['viewMode', 'docs']],
+  [['id', 'components-dialog--default'], ['viewMode', 'story']],
+  [['id', 'components-dialog--no-close-button'], ['viewMode', 'story']],
 ]);
 assert(catalogHarness.navigationUrls.every((url) => !new URL(url).searchParams.has('args')));
 const catalogMembers = readZip(Buffer.from(await catalogHarness.zipArchives[0].blob.arrayBuffer()));
@@ -773,7 +795,8 @@ assert.match(catalogIndex, /components-dialog--no-close-button\.html">No Close B
 assert.match(catalogFile('pages/components-dialog--docs.html'), /href="components-dialog--no-close-button\.html#example"/);
 const catalogPages = JSON.parse(catalogFile('manifest.json')).pages;
 assert.deepEqual(catalogPages.map((page) => page.type), ['docs', 'story', 'story']);
-assert.equal(catalogPages.find(({ id }) => id.endsWith('--default')).frame.frameId, 3);
+assert.equal(catalogPages.find(({ id }) => id.endsWith('--default')).frame.frameId, 0);
+assert.equal(catalogPages.find(({ id }) => id.endsWith('--docs')).frame.rootSelector, '#storybook-docs');
 assert(!catalogHarness.offlineRequestedUrls.some((url) => url.endsWith('/missing-runtime.js')));
 const catalogImages = catalogMembers.filter(({ path }) => path.startsWith('assets/images/') && path.endsWith('.png'));
 assert.equal(catalogImages.reduce((size, image) => size + image.bytes.byteLength, 0), 6 * 1024 * 1024);
@@ -802,7 +825,7 @@ assert.deepEqual(
 const loadingStoryId = 'components-button--loading';
 const loadingHarness = await makeHarness({
   entries: [{ id: loadingStoryId, type: 'story', title: 'Components/Button', name: 'Loading' }],
-  readinessFrames: [{ frameId: 3, routeType: 'iframe', root: true, rootSelector: '#storybook-root', text: 'Loading' }],
+  readinessFrames: [{ frameId: 0, routeType: 'iframe', root: true, rootSelector: '#storybook-root', text: 'Loading' }],
 });
 const loadingExport = await loadingHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });
 assert.equal(loadingExport.job.pages.staticReady, 1, 'a rendered Loading button is a valid story');
@@ -811,24 +834,26 @@ const dataTableId = 'components-data-table--docs';
 const dataTableHarness = await makeHarness({
   entries: [{ id: dataTableId, type: 'docs', title: 'Components/Data Table', name: 'Docs' }],
   readinessFrames: [
-    { frameId: 0, routeType: 'main', root: true },
-    { frameId: 4, routeType: 'iframe', root: true, documentId: 'data-table-preview-document' },
+    { frameId: 0, routeType: 'iframe', root: true, rootSelector: '#storybook-docs', documentId: 'data-table-preview-document' },
+    { frameId: 4, routeType: 'iframe', root: true, rootSelector: '#storybook-docs', documentId: 'nested-iframe-document' },
   ],
   realZip: true,
   offlineFixture: {
+    cachedScripts: new Map([['https://storybook.test/assets/data-table-m0GME5TK.js', 'export const table = 1;']]),
     capture: ({ func, args, attempt }) => {
       if (attempt === 1) return [];
-      const root = { querySelector: () => null, outerHTML: `<main class="sbdocs-wrapper"><h1>Data Table</h1><p>${'x'.repeat(1024 * 1024 + 1)}</p></main>` };
+      const root = { querySelector: () => null, outerHTML: `<div id="storybook-docs"><main class="sbdocs-wrapper"><h1>Data Table</h1><p>${'x'.repeat(1024 * 1024 + 1)}</p></main></div>` };
       const context = vm.createContext({
         URL, URLSearchParams, TextEncoder,
         location: new URL(`https://storybook.test/storybook/iframe.html?id=${dataTableId}&viewMode=docs`),
         performance: { getEntriesByType: () => [] },
         document: {
-          title: 'Data Table Docs', querySelector: (selector) => selector === '.sbdocs-wrapper' ? root : null,
+          title: 'Data Table Docs', querySelector: (selector) => selector === '#storybook-docs' ? root : null,
+          querySelectorAll: () => [{ href: 'https://storybook.test/assets/data-table-m0GME5TK.js' }, { src: 'https://storybook.test/assets/uncached.js' }],
           head: { children: [] }, documentElement: { getAttribute: () => null },
         },
       });
-      return [{ frameId: 4, result: vm.runInContext(`(${func.toString()})(...${JSON.stringify(args)})`, context) }];
+      return [{ frameId: 0, result: vm.runInContext(`(${func.toString()})(...${JSON.stringify(args)})`, context) }];
     },
   },
 });
@@ -837,7 +862,15 @@ assert.equal(dataTableExport.job.pages.staticReady, 1, 'retry captures Docs afte
 assert.equal(dataTableHarness.captureCalls.length, 2);
 assert(dataTableHarness.captureCalls.every(({ target }) => target.documentIds[0] === 'data-table-preview-document'));
 const dataTableMembers = readZip(Buffer.from(await dataTableHarness.zipArchives[0].blob.arrayBuffer()));
-assert(dataTableMembers.find((file) => file.path === `pages/${dataTableId}.html`).bytes.length > 1024 * 1024);
+const tableHtml = dataTableMembers.find((file) => file.path === `pages/${dataTableId}.html`).bytes.toString();
+assert(tableHtml.length > 1024 * 1024);
+assert.match(tableHtml, /<div id="storybook-docs"><main class="sbdocs-wrapper">/);
+assert(!tableHtml.includes('data-table-m0GME5TK.js'), 'cached chunks are not loaded by the HTML snapshot');
+assert.equal(dataTableMembers.find((file) => file.path.endsWith('-data-table-m0GME5TK.js')).bytes.toString(), 'export const table = 1;');
+const chunkManifest = JSON.parse(dataTableMembers.find((file) => file.path === 'ASSET_MANIFEST.json').bytes.toString());
+assert.equal(chunkManifest.find((entry) => entry.source.endsWith('/uncached.js')).status, 'SKIPPED');
+assert.equal(chunkManifest.find((entry) => entry.source.endsWith('/data-table-m0GME5TK.js')).sourceMode, 'browser-cache-only');
+assert(!dataTableHarness.offlineRequestedUrls.some((url) => url.endsWith('.js')), 'cache misses do not fetch the script over the network');
 
 const pageCacheHarness = await makeHarness({ entries: catalogEntries, realZip: true });
 const exportCatalog = () => pageCacheHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });

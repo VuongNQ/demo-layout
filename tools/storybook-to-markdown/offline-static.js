@@ -242,7 +242,7 @@
       || /[?&](?:token|secret|password|authorization|session|api[_-]?key|auth|jwt|ticket|code)=/i.test(text);
   }
   function canCacheSnapshot(page, target) {
-    const urls = [target, page.url, page.frameUrl, ...(page.performanceResources || []).map((resource) => resource.url)].filter(Boolean);
+    const urls = [target, page.url, page.frameUrl, ...(page.scriptUrls || []), ...(page.performanceResources || []).map((resource) => resource.url)].filter(Boolean);
     const passwordField = /<input\b[^>]*\btype\s*=\s*["']?password\b/i;
     return !passwordField.test(page.html) && !containsCredentialContent(page.html) && urls.every((url) => sanitizeUrl(url) === url);
   }
@@ -417,7 +417,7 @@
       };
       if (!page.html || page.status === 'FAILED') { const warnings = [page.error || 'No usable rendered snapshot was captured.']; return { ...metadata, path: '', status: 'FAILED', warningCount: warnings.length, failureCount: 1, warnings }; }
       const path = pageIds.get(page.id);
-      const failedRefs = registry.values().filter((asset) => asset.referencingPageIds.includes(page.id) && asset.status !== 'DOWNLOADED');
+      const failedRefs = registry.values().filter((asset) => asset.referencingPageIds.includes(page.id) && !asset.cacheOnly && asset.status !== 'DOWNLOADED');
       const missingNavTargets = [];
       for (const match of page.html.matchAll(/<a\b[^>]*\bhref\s*=\s*(['"])(.*?)\1/gi)) {
         try {
@@ -460,7 +460,7 @@
       const file = files.find((candidate) => candidate.path === page.path);
       if (!file) continue;
       const related = scope === 'catalog' ? '' : pageResults.filter((candidate) => candidate.path && candidate.id !== page.id).map((candidate) => `<a href="${escapeHtml(candidate.path.replace(/^pages\//, ''))}">${escapeHtml(candidate.storybookTitle || candidate.title)}</a>`).join(' · ');
-      const pageNav = `<nav aria-label="Offline documentation navigation" style="margin:0 0 1.5rem;padding:.75rem;border-bottom:1px solid #bbb"><a href="../index.html">${scope === 'catalog' ? 'All Docs + Stories' : 'All Docs'}</a>${related ? ` · ${related}` : ''}</nav>`;
+      const pageNav = `<nav aria-label="Offline documentation navigation" style="position:fixed;left:.75rem;bottom:.75rem;z-index:9999;max-width:calc(100% - 1.5rem);max-height:25vh;overflow:auto;padding:.4rem .65rem;background:Canvas;color:CanvasText;border:1px solid #bbb;border-radius:.25rem"><a href="../index.html">${scope === 'catalog' ? 'All Docs + Stories' : 'All Docs'}</a>${related ? ` · ${related}` : ''}</nav>`;
       const body = /<body\b[^>]*>/i;
       file.content = body.test(file.content) ? file.content.replace(body, (opening) => `${opening}${pageNav}`) : file.content.replace(/<\/html\s*>/i, `<body>${pageNav}</body></html>`);
     }
@@ -468,7 +468,7 @@
     const failedAssets = registry.values().filter((asset) => asset.status !== 'DOWNLOADED');
     const packagedSizeByPath = new Map(registry.values().filter((asset) => asset.status === 'DOWNLOADED' && asset.bytes).map((asset) => [asset.localArchivePath, asset.bytes.byteLength]));
     const manifest = { schemaVersion: 1, format: 'storybook-offline-static', sourceOrigin: (() => { try { return new URL(sourceUrl).origin; } catch { return ''; } })(), capturedAt: createdAt, scope, discoveredPages: discoveredCount, selectedPages: pages.length, omittedPages: Math.max(0, discoveredCount - pages.length), completedPages: pageResults.filter((page) => page.status === 'STATIC_READY').length, partialPages: pageResults.filter((page) => page.status === 'PARTIAL').length, failedPages: pageResults.filter((page) => page.status === 'FAILED').length, pages: pageResults, assetsManifest: 'ASSET_MANIFEST.json', limitations: ['Static snapshot only; scripts are removed and interactive behavior is not claimed.'] };
-    const assetManifest = registry.values().map(({ assetId, resourceType, originalUrl, canonicalFetchKey, referencingPageIds: referringPageIds, referencingAssetIds: referringAssetIds, discoverySources, status, attempts, mimeType, byteSize, downloadedByteSize, contentHash, localArchivePath, rewriteStatus, failureReason, warnings }) => ({ assetId, type: resourceType, source: sanitizeUrl(originalUrl), canonicalResourceIdentity: sanitizeUrl(canonicalFetchKey), referringPageIds, referringAssetIds, discoveryEvidence: discoverySources, status, attempts, mimeType, byteSize: downloadedByteSize ?? byteSize, packagedByteSize: packagedSizeByPath.get(localArchivePath) || 0, contentHash, localArchivePath, rewriteStatus, error: failureReason, warnings }));
+    const assetManifest = registry.values().map(({ assetId, resourceType, originalUrl, canonicalFetchKey, referencingPageIds: referringPageIds, referencingAssetIds: referringAssetIds, discoverySources, status, attempts, mimeType, byteSize, downloadedByteSize, contentHash, localArchivePath, rewriteStatus, failureReason, warnings, cacheOnly }) => ({ assetId, type: resourceType, ...(cacheOnly ? { sourceMode: 'browser-cache-only' } : {}), source: sanitizeUrl(originalUrl), canonicalResourceIdentity: sanitizeUrl(canonicalFetchKey), referringPageIds, referringAssetIds, discoveryEvidence: discoverySources, status, attempts, mimeType, byteSize: downloadedByteSize ?? byteSize, packagedByteSize: packagedSizeByPath.get(localArchivePath) || 0, contentHash, localArchivePath, rewriteStatus, error: failureReason, warnings }));
     const totals = { urlReferences: registry.values().reduce((n, a) => n + (a.referenceCount || 1), 0), urlDuplicates: registry.values().reduce((n, a) => n + (a.referenceCount || 1), 0) - registry.values().length, contentDuplicates: registry.values().filter((a) => a.warnings.some((w) => w.includes('shares an archive'))).length, downloadedBytes: registry.values().reduce((n, a) => n + (a.status === 'DOWNLOADED' ? (a.downloadedByteSize ?? a.byteSize) : 0), 0), packagedBytes: files.reduce((n, file) => n + (file.bytes?.byteLength || new TextEncoder().encode(file.content || '').byteLength), 0) };
     const byType = Object.fromEntries(['css', 'js', 'font', 'image', 'svg', 'other'].map((type) => [type, failedAssets.filter((asset) => asset.resourceType === type).length]));
     const dynamicImports = registry.values().flatMap((asset) => asset.warnings.filter((warning) => warning.includes('dynamic import')).map((warning) => `${asset.assetId}: ${warning}`));
@@ -484,7 +484,7 @@
     files.push({ path: 'README.md', content: '# Offline Storybook Docs\n\nOpen `index.html` to browse the static capture. If `file://` blocks local resources in your browser, serve this directory using a local HTTP server. This is not a complete or interactive Storybook deployment.\n' });
     return { files, manifest, assetManifest, pageResults };
   }
-  async function buildOfflineSite(pages, { approvedOrigin, fetchImpl = fetch, signal, pauseRequested = () => false, onPauseState = () => {}, onProgress = () => {}, onAssetDiscovered = () => {}, onPhase = () => {}, loadStagedAsset, stageAsset, maxResourceBytes, maxTotalBytes, concurrency = CONCURRENCY, sourceUrl, scope = 'all', discoveredCount = pages.length } = {}) {
+  async function buildOfflineSite(pages, { approvedOrigin, fetchImpl = fetch, signal, pauseRequested = () => false, onPauseState = () => {}, onProgress = () => {}, onAssetDiscovered = () => {}, onPhase = () => {}, loadStagedAsset, stageAsset, fetchCachedScript, maxResourceBytes, maxTotalBytes, concurrency = CONCURRENCY, sourceUrl, scope = 'all', discoveredCount = pages.length } = {}) {
     const registry = createRegistry(approvedOrigin);
     let pageBytes = 0;
     const boundedPages = pages.map((page) => {
@@ -502,6 +502,10 @@
         const found = registry.register(ref.url, ref.baseUrl, { pageId: page.id, discoverySource: ref.source, resourceType: ref.resourceType || classify(ref.url) });
         if (ref.source === 'unsupported-iframe' && found.entry) { found.entry.status = 'SKIPPED'; found.entry.failureReason = 'Embedded iframe content is unsupported in static mode.'; }
       }
+      if (fetchCachedScript) for (const url of page.scriptUrls || []) {
+        const { entry } = registry.register(url, page.url, { pageId: page.id, discoverySource: 'preview-script', resourceType: 'js' });
+        if (entry?.resourceType === 'js') entry.cacheOnly = true;
+      }
       for (const resource of page.performanceResources || []) {
         const resourceType = classify(resource.url);
         if (catalog && (resourceType === 'js' || !['css', 'font', 'image', 'svg', 'media'].includes(resourceType))) continue;
@@ -511,10 +515,10 @@
     const notifiedAssets = new Set();
     const notifyDiscovered = () => { for (const asset of registry.values()) if (!notifiedAssets.has(asset.assetId)) { notifiedAssets.add(asset.assetId); onAssetDiscovered(asset); } };
     notifyDiscovered();
-    const scheduler = makeScheduler({ concurrency, fetchImpl, signal, pauseRequested, onPauseState, onProgress, loadStagedAsset, stageAsset, maxResourceBytes, maxTotalBytes });
+    const scheduler = makeScheduler({ concurrency, fetchImpl, signal, pauseRequested, onPauseState, onProgress, loadStagedAsset, stageAsset, fetchCachedScript, maxResourceBytes, maxTotalBytes });
     const scanned = new Set();
     for (let depth = 0; depth < 8; depth++) {
-      const todo = registry.values().filter((asset) => asset.status === 'DISCOVERED' && asset.canonicalFetchKey && !scanned.has(asset.canonicalFetchKey));
+      const todo = registry.values().filter((asset) => !asset.cacheOnly && asset.status === 'DISCOVERED' && asset.canonicalFetchKey && !scanned.has(asset.canonicalFetchKey));
       if (!todo.length) { if (pauseRequested()) await scheduler.run([], approvedOrigin); break; }
       for (const asset of todo) scanned.add(asset.canonicalFetchKey);
       await scheduler.run(todo, approvedOrigin);
@@ -532,8 +536,9 @@
       }
       notifyDiscovered();
     }
+    if (fetchCachedScript) await scheduler.run(registry.values().filter((asset) => asset.cacheOnly && asset.status === 'DISCOVERED'), approvedOrigin);
     onPhase('rewriting-references');
-    for (const asset of registry.values()) if (asset.status === 'DOWNLOADED' && asset.bytes && ['css', 'js', 'svg'].includes(asset.resourceType)) {
+    for (const asset of registry.values()) if (asset.status === 'DOWNLOADED' && asset.bytes && !asset.cacheOnly && ['css', 'js', 'svg'].includes(asset.resourceType)) {
       const text = new TextDecoder().decode(asset.bytes);
       const rewritten = asset.resourceType === 'css' ? rewriteCss(text, asset.originalUrl, registry, asset.localArchivePath) : asset.resourceType === 'js' ? rewriteJs(text, asset.originalUrl, registry, asset.localArchivePath) : safeSnapshot(localizeReferences(text, asset.originalUrl, registry, asset.localArchivePath, new Map()));
       asset.bytes = new TextEncoder().encode(rewritten);
@@ -556,6 +561,10 @@
   };
   const pathFor = (entry) => {
     const type = entry.resourceType || classify(entry.originalUrl);
+    if (entry.cacheOnly) {
+      const name = new URL(entry.originalUrl).pathname.split('/').pop().replace(/[^A-Za-z0-9._-]/g, '-').slice(-100);
+      return `assets/js/${entry.assetId}-${name || 'chunk'}${/\.m?js$/i.test(name) ? '' : '.js'}`;
+    }
     const ext = extensionFor(entry);
     const pathIdentity = ['css', 'js', 'svg'].includes(type) ? entry.assetId : entry.contentHash || entry.assetId;
     return `assets/${TYPE_DIR[type] || 'other'}/${pathIdentity}${ext}`;
@@ -565,7 +574,7 @@
     const hash = await crypto.subtle.digest('SHA-256', bytes);
     return [...new Uint8Array(hash)].map((n) => n.toString(16).padStart(2, '0')).join('');
   }
-  function makeScheduler({ concurrency = CONCURRENCY, fetchImpl = fetch, signal, pauseRequested = () => false, onPauseState = () => {}, onProgress = () => {}, loadStagedAsset = async () => null, stageAsset = async () => {}, maxResourceBytes = MAX_RESOURCE_BYTES, maxTotalBytes = MAX_TOTAL_BYTES, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+  function makeScheduler({ concurrency = CONCURRENCY, fetchImpl = fetch, signal, pauseRequested = () => false, onPauseState = () => {}, onProgress = () => {}, loadStagedAsset = async () => null, stageAsset = async () => {}, fetchCachedScript, maxResourceBytes = MAX_RESOURCE_BYTES, maxTotalBytes = MAX_TOTAL_BYTES, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
     const inflight = new Map();
     const content = new Map();
     let downloadedBytes = 0, transferredBytes = 0, reservedBytes = 0;
@@ -577,7 +586,7 @@
       const promise = (async () => {
         entry.status = 'QUEUED'; onProgress(entry);
         try {
-          const staged = await loadStagedAsset(entry);
+          const staged = entry.cacheOnly ? null : await loadStagedAsset(entry);
           if (staged?.bytes && staged.contentHash && await digest(staged.bytes) === staged.contentHash) {
             const bytes = new Uint8Array(staged.bytes);
             entry.contentHash = staged.contentHash; entry.mimeType = staged.mimeType; entry.byteSize = bytes.byteLength; entry.downloadedByteSize = bytes.byteLength;
@@ -599,7 +608,10 @@
           const relay = () => controller.abort(signal.reason || new Error('Cancelled'));
           signal?.addEventListener('abort', relay, { once: true });
           try {
-            const response = await fetchImpl(entry.canonicalFetchKey, { credentials: 'omit', redirect: 'error', signal: controller.signal, cache: 'no-store' });
+            const response = entry.cacheOnly
+              ? await fetchCachedScript(entry.canonicalFetchKey, Math.min(maxResourceBytes, Math.max(0, maxTotalBytes - transferredBytes - reservedBytes)))
+              : await fetchImpl(entry.canonicalFetchKey, { credentials: 'omit', redirect: 'error', signal: controller.signal, cache: 'no-store' });
+            if (!response) throw new Error('Preview script unavailable in browser cache or over the remaining size limit.');
             const final = new URL(response.url || entry.canonicalFetchKey);
             if (final.origin !== approvedOrigin) throw new Error('Redirect outside approved Storybook origin.');
             if (!response.ok) {
@@ -629,7 +641,7 @@
               } else {
                 if (downloadedBytes + buffer.byteLength > maxTotalBytes) throw new Error('Offline export exceeds total staging size limit.');
                 entry.bytes = new Uint8Array(buffer); entry.localArchivePath = pathFor(entry);
-                await stageAsset(entry);
+                if (!entry.cacheOnly) await stageAsset(entry);
                 entry.status = 'DOWNLOADED'; if (!['css', 'js', 'svg'].includes(entry.resourceType)) content.set(contentKey, entry); downloadedBytes += buffer.byteLength;
               }
               transferredBytes += buffer.byteLength;
@@ -639,7 +651,7 @@
             entry.failureReason = String(error.message || error).slice(0, 250);
             if (entry.status !== 'DOWNLOADED') entry.bytes = null;
             const permanent = error.status && error.status < 500 && error.status !== 429 || /redirect outside|HTML response|content type|JSON-like|credential or secret|size limit|staging storage\/quota/i.test(entry.failureReason);
-            if (signal?.aborted || permanent || attempt === RETRIES) { entry.status = signal?.aborted ? 'SKIPPED' : 'FAILED'; onProgress(entry); return entry; }
+            if (entry.cacheOnly || signal?.aborted || permanent || attempt === RETRIES) { entry.status = entry.cacheOnly || signal?.aborted ? 'SKIPPED' : 'FAILED'; onProgress(entry); return entry; }
             let delay = Math.min(4000, 250 * 2 ** attempt);
             const retryAfter = Number(error.retryAfter);
             const retryDate = Date.parse(error.retryAfter || '');
