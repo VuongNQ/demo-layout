@@ -902,19 +902,31 @@ try {
 
   const offlineZipPath = join(zipTestDir, 'offline-static.zip');
   await writeFile(offlineZipPath, Buffer.from(await offlineIntegratedHarness.zipArchives[0].blob.arrayBuffer()));
-  const offlineListing = spawnSync('tar', ['-tf', offlineZipPath], { encoding: 'utf8' });
+  const offlineZipFailure = (operation, args, result) => new Error(
+    `Independent Offline Static ZIP ${operation} failed: ${JSON.stringify(['unzip', ...args])}; archive=${offlineZipPath}; status=${result.status}; signal=${result.signal}; error=${result.error?.message || 'none'}\nstdout: ${result.stdout || ''}\nstderr: ${result.stderr || ''}`,
+  );
+  // GNU tar on Ubuntu cannot read ZIPs; use the same ZIP-aware tool as the checks above.
+  const offlineListArgs = ['-Z1', offlineZipPath];
+  const offlineListing = spawnSync('unzip', offlineListArgs, { encoding: 'utf8' });
   if (!offlineListing.error && offlineListing.status === 0) {
-    independentOfflineZip = 'PASS (tar)';
+    const offlineTestArgs = ['-t', offlineZipPath];
+    const offlineTest = spawnSync('unzip', offlineTestArgs, { encoding: 'utf8' });
+    if (offlineTest.error || offlineTest.status !== 0) throw offlineZipFailure('integrity validation', offlineTestArgs, offlineTest);
+    independentOfflineZip = 'PASS (unzip)';
     const offlineNames = offlineListing.stdout.split(/\r?\n/).filter(Boolean);
     assert(offlineNames.includes('index.html') && offlineNames.includes('pages/guide--docs.html') && offlineNames.includes('ASSET_MANIFEST.json'), 'independent ZIP reader lists the generated Offline Static site');
+    assert.deepEqual(offlineNames.sort(), offlineIntegratedMembers.map((member) => member.path).sort(), 'independent ZIP reader sees every expected Offline Static member');
     const offlineExtractDir = await mkdtemp(join(zipTestDir, 'offline-extracted-'));
-    const offlineExtract = spawnSync('tar', ['-xf', offlineZipPath, '-C', offlineExtractDir], { encoding: 'utf8' });
-    if (offlineExtract.error || offlineExtract.status !== 0) throw new Error(`Independent Offline Static ZIP extraction failed: ${offlineExtract.stderr || offlineExtract.error?.message || offlineExtract.stdout}`);
+    const offlineExtractArgs = ['-q', offlineZipPath, '-d', offlineExtractDir];
+    const offlineExtract = spawnSync('unzip', offlineExtractArgs, { encoding: 'utf8' });
+    if (offlineExtract.error || offlineExtract.status !== 0) throw offlineZipFailure('extraction', offlineExtractArgs, offlineExtract);
     const binaryMember = offlineIntegratedMembers.find((member) => member.path.startsWith('assets/images/') && !member.path.endsWith('/'));
     assert(binaryMember, 'integrated offline archive contains a binary image fixture');
     assert.deepEqual(await readFile(join(offlineExtractDir, ...binaryMember.path.split('/'))), Buffer.from(binaryMember.bytes), 'independent ZIP reader verifies extracted binary resource bytes');
   } else if (!['ENOENT', 'EPERM', 'EACCES'].includes(offlineListing.error?.code)) {
-    throw new Error(`Independent Offline Static ZIP listing failed: ${offlineListing.stderr || offlineListing.error?.message || offlineListing.stdout}`);
+    throw offlineZipFailure('listing', offlineListArgs, offlineListing);
+  } else {
+    independentOfflineZip = `unavailable (${offlineListing.error.code})`;
   }
 
   let filenameZipResponse;
