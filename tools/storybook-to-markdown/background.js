@@ -675,9 +675,20 @@ async function createZipUrl(files) {
     exists = clientsList.some((client) => client.url === chrome.runtime.getURL('offscreen.html'));
   }
   if (!exists) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['BLOBS'], justification: 'Package user-requested local export files into one ZIP download.' });
-  const response = await chrome.runtime.sendMessage({ action: 'MAKE_ZIP', files });
-  if (!response?.ok) throw new Error(response?.error || 'ZIP packaging failed.');
-  return response.url;
+  const archiveKey = `zip:${crypto.randomUUID()}`;
+  try {
+    // Chrome serializes extension messages as JSON. Structured cloning in IndexedDB
+    // preserves binary members without expanding the archive into a runtime message.
+    await withOfflineStore('readwrite', (store) => store.put({ key: archiveKey, files, updatedAt: now() }));
+    const response = await chrome.runtime.sendMessage({ action: 'MAKE_ZIP', archiveKey });
+    if (!response?.ok) throw new Error(response?.error || 'ZIP packaging failed.');
+    return response.url;
+  } catch (error) {
+    await closeOffscreenDocument();
+    throw error;
+  } finally {
+    await withOfflineStore('readwrite', (store) => store.delete(archiveKey)).catch(() => {});
+  }
 }
 
 async function waitForDownload(downloadId, url) {
@@ -999,7 +1010,7 @@ async function exportOffline(message) {
       offlineJob.pages.staticReady = result.pageResults.filter((page) => page.status === 'STATIC_READY').length;
       offlineJob.pages.partial = result.pageResults.filter((page) => page.status === 'PARTIAL').length;
       offlineJob.pages.failed = result.pageResults.filter((page) => page.status === 'FAILED').length;
-      offlineJob.warnings.push(...result.pageResults.flatMap((page) => page.warnings).slice(0, 30));
+      offlineJob.warnings.push(...[...new Set(result.pageResults.flatMap((page) => page.warnings))].slice(0, 30));
       offlineJob.warnings.push(...result.registry.values().filter((asset) => asset.status !== 'DOWNLOADED').slice(0, 30).map((asset) => `${asset.resourceType}: ${asset.originalUrl || asset.failureReason} (${asset.status})`));
       const uncompressedBytes = result.files.reduce((total, file) => total + (file.bytes?.byteLength || new TextEncoder().encode(file.content || '').byteLength), 0);
       if (uncompressedBytes > 32 * 1024 * 1024) throw new Error('Offline ZIP exceeds its 32 MiB uncompressed in-memory export limit. Nothing was truncated.');
@@ -1010,7 +1021,7 @@ async function exportOffline(message) {
       if (retryableFailures) offlineJob.warnings.push('Validated staged assets were retained so an authorized retry can reuse them.');
       else await cleanupOfflineStaging(sourceOrigin).catch((error) => { offlineJob.warnings.push(`Temporary asset cleanup failed: ${offlineSafeError(error)}`); });
       offlineJob.state = 'completed'; offlineJob.phaseCode = 'COMPLETED'; offlineJob.phase = `Downloaded ${filename}`; offlineJob.filename = filename; offlineJob.percent = 100; offlineJob.completedAt = now();
-      return { ok: true, filename, job: clone(offlineJob), pages: result.pageResults };
+      return { ok: true, filename, job: clone(offlineJob) };
     } catch (error) {
       offlineJob.state = offlineJob.cancelRequested ? 'cancelled' : 'failed'; offlineJob.phaseCode = offlineJob.state === 'cancelled' ? 'CANCELLED' : 'FAILED'; offlineJob.phase = offlineJob.state === 'cancelled' ? 'Cancelled' : 'Offline export failed'; offlineJob.lastError = offlineSafeError(error); offlineJob.completedAt = now();
       if (offlineJob.state === 'cancelled') await cleanupOfflineStaging(sourceOrigin).catch(() => {});

@@ -490,12 +490,18 @@
       pageBytes += size;
       return page;
     });
+    const catalog = scope === 'catalog';
     for (const page of boundedPages) {
-    for (const ref of extractHtmlReferences(page.html || '', page.url)) {
+      for (const ref of extractHtmlReferences(page.html || '', page.url)) {
+        if (catalog && ref.resourceType === 'js') continue;
         const found = registry.register(ref.url, ref.baseUrl, { pageId: page.id, discoverySource: ref.source, resourceType: ref.resourceType || classify(ref.url) });
         if (ref.source === 'unsupported-iframe' && found.entry) { found.entry.status = 'SKIPPED'; found.entry.failureReason = 'Embedded iframe content is unsupported in static mode.'; }
       }
-      for (const resource of page.performanceResources || []) registry.register(resource.url, page.url, { pageId: page.id, discoverySource: `performance:${resource.initiatorType}`, resourceType: classify(resource.url) });
+      for (const resource of page.performanceResources || []) {
+        const resourceType = classify(resource.url);
+        if (catalog && (resourceType === 'js' || !['css', 'font', 'image', 'svg', 'media'].includes(resourceType))) continue;
+        registry.register(resource.url, page.url, { pageId: page.id, discoverySource: `performance:${resource.initiatorType}`, resourceType });
+      }
     }
     const notifiedAssets = new Set();
     const notifyDiscovered = () => { for (const asset of registry.values()) if (!notifiedAssets.has(asset.assetId)) { notifiedAssets.add(asset.assetId); onAssetDiscovered(asset); } };
