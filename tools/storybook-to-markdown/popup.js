@@ -350,7 +350,7 @@ startButton.addEventListener('click', async () => {
       byId('offline-authorized').checked = false;
       const response = await send({ action: 'EXPORT_OFFLINE', scope, authorizationConfirmed: true });
       renderOffline(response.job);
-      storybookMessage.textContent = `Downloaded ${response.filename}. Review OFFLINE_REPORT.md for missing dependencies and limitations.`;
+      storybookMessage.textContent = '';
       return;
     }
     byId('current-preview').hidden = true;
@@ -407,7 +407,9 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message?.action === 'OFFLINE_JOB_UPDATED' && message.job) renderOffline(message.job);
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.storybookExportJob) pollJob();
+  if (area !== 'local') return;
+  if (changes.storybookExportJob) pollJob();
+  if (changes.storybookOfflineExportJob?.newValue) renderOffline(changes.storybookOfflineExportJob.newValue);
 });
 
 pollJob();

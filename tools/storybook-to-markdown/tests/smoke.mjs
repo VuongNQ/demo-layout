@@ -720,13 +720,13 @@ assert.equal(threeHarness.peakNavigations, 3);
 
 // Exercise the user-facing Offline Static coordinator from authorization message to real ZIP Blob handoff.
 const offlineNoConsentHarness = await makeHarness({ delay: 3, realZip: true });
-const offlineNoConsentResponse = await offlineNoConsentHarness.send({ action: 'EXPORT_OFFLINE', scope: 'current', authorizationConfirmed: false });
+const offlineNoConsentResponse = await offlineNoConsentHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'current', authorizationConfirmed: false });
 assert.equal(offlineNoConsentResponse.ok, false, 'the background coordinator rejects Offline Static without explicit authorization confirmation');
 assert.match(offlineNoConsentResponse.error, /explicitly confirm/);
 assert.equal(offlineNoConsentHarness.zipArchives.length, 0);
 
 const offlineCurrentHarness = await makeHarness({ delay: 3, realZip: true });
-const offlineCurrentResponse = await offlineCurrentHarness.send({ action: 'EXPORT_OFFLINE', scope: 'current', authorizationConfirmed: true });
+const offlineCurrentResponse = await offlineCurrentHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'current', authorizationConfirmed: true });
 assert.equal(offlineCurrentResponse.ok, true, 'Current Docs coordinator returns a generated offline ZIP');
 assert.equal(offlineCurrentResponse.job.phaseCode, 'COMPLETED');
 const offlineCurrentMembers = readZip(Buffer.from(await offlineCurrentHarness.zipArchives[0].blob.arrayBuffer()));
@@ -736,7 +736,15 @@ assert.equal(offlineCurrentMembers.filter((entry) => /^pages\/.+\.html$/.test(en
 assert(offlineCurrentHarness.tabs.size === 0, 'Current Docs export never closes or leaves a crawler tab');
 
 const offlineMissingRootHarness = await makeHarness({ delay: 3, realZip: true, readinessFrames: [{ frameId: 0, root: false, id: '$expected' }] });
-const offlineMissingRootResponse = await offlineMissingRootHarness.send({ action: 'EXPORT_OFFLINE', scope: 'current', authorizationConfirmed: true });
+const backgroundExportHarness = await makeHarness({ delay: 20 });
+const acceptedExport = await backgroundExportHarness.send({ action: 'EXPORT_OFFLINE', scope: 'current', authorizationConfirmed: true });
+assert.equal(acceptedExport.ok, true);
+assert.notEqual(acceptedExport.job.state, 'completed');
+const finishedExport = await backgroundExportHarness.waitOfflineFor((job) => job.state === 'completed');
+assert.equal(finishedExport.id, acceptedExport.job.id);
+assert.equal(finishedExport.downloadAvailable, true);
+
+const offlineMissingRootResponse = await offlineMissingRootHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'current', authorizationConfirmed: true });
 assert.equal(offlineMissingRootResponse.ok, true, 'a failed page remains reportable in a generated Current Docs archive');
 assert.equal(offlineMissingRootResponse.job.pages.failed, 1);
 const offlineFailedMembers = readZip(Buffer.from(await offlineMissingRootHarness.zipArchives[0].blob.arrayBuffer()));
@@ -746,7 +754,7 @@ assert(offlineFailedMembers.some((member) => member.path === 'OFFLINE_REPORT.md'
 assert.equal(JSON.parse(new TextDecoder().decode(offlineFailedMembers.find((member) => member.path === 'manifest.json').bytes)).pages[0].status, 'FAILED');
 
 const offlineAllHarness = await makeHarness({ delay: 3, realZip: true });
-const offlineAllResponse = await offlineAllHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
+const offlineAllResponse = await offlineAllHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'all', authorizationConfirmed: true });
 assert.equal(offlineAllResponse.ok, true, `All Docs coordinator returns a generated offline ZIP: ${offlineAllResponse.error || ''}`);
 const offlineAllMembers = readZip(Buffer.from(await offlineAllHarness.zipArchives[0].blob.arrayBuffer()));
 const offlineAllPaths = new Set(offlineAllMembers.map((entry) => entry.path));
@@ -775,7 +783,7 @@ const catalogHarness = await makeHarness({
 });
 catalogHarness.setSourceTab({ id: 1, url: 'https://storybook.test/storybook/?path=/story/components-dialog--default&args=variant:other', status: 'complete' });
 assert.equal((await catalogHarness.send({ action: 'DOWNLOAD_OFFLINE', jobId: 'unfinished' })).ok, false);
-const catalogResponse = await catalogHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });
+const catalogResponse = await catalogHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'catalog', authorizationConfirmed: true });
 assert.equal(catalogResponse.ok, true, catalogResponse.error);
 assert.equal(catalogResponse.job.pages.docs, 1);
 assert.equal(catalogResponse.job.pages.stories, 2);
@@ -827,7 +835,7 @@ const loadingHarness = await makeHarness({
   entries: [{ id: loadingStoryId, type: 'story', title: 'Components/Button', name: 'Loading' }],
   readinessFrames: [{ frameId: 0, routeType: 'iframe', root: true, rootSelector: '#storybook-root', text: 'Loading' }],
 });
-const loadingExport = await loadingHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });
+const loadingExport = await loadingHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'catalog', authorizationConfirmed: true });
 assert.equal(loadingExport.job.pages.staticReady, 1, 'a rendered Loading button is a valid story');
 
 const dataTableId = 'components-data-table--docs';
@@ -857,7 +865,7 @@ const dataTableHarness = await makeHarness({
     },
   },
 });
-const dataTableExport = await dataTableHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });
+const dataTableExport = await dataTableHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'catalog', authorizationConfirmed: true });
 assert.equal(dataTableExport.job.pages.staticReady, 1, 'retry captures Docs after the first injection returns no snapshot');
 assert.equal(dataTableHarness.captureCalls.length, 2);
 assert(dataTableHarness.captureCalls.every(({ target }) => target.documentIds[0] === 'data-table-preview-document'));
@@ -873,7 +881,7 @@ assert.equal(chunkManifest.find((entry) => entry.source.endsWith('/data-table-m0
 assert(!dataTableHarness.offlineRequestedUrls.some((url) => url.endsWith('.js')), 'cache misses do not fetch the script over the network');
 
 const pageCacheHarness = await makeHarness({ entries: catalogEntries, realZip: true });
-const exportCatalog = () => pageCacheHarness.send({ action: 'EXPORT_OFFLINE', scope: 'catalog', authorizationConfirmed: true });
+const exportCatalog = () => pageCacheHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'catalog', authorizationConfirmed: true });
 const failedStory = 'components-dialog--no-close-button';
 pageCacheHarness.failedIds.add(failedStory);
 const firstCacheExport = await exportCatalog();
@@ -912,7 +920,7 @@ const offlineFixture = {
   ]),
 };
 const offlineIntegratedHarness = await makeHarness({ delay: 3, realZip: true, offlineFixture });
-const offlineIntegratedResponse = await offlineIntegratedHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
+const offlineIntegratedResponse = await offlineIntegratedHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'all', authorizationConfirmed: true });
 assert.equal(offlineIntegratedResponse.ok, true, 'integrated All Docs asset export generates a ZIP');
 assert.equal(offlineIntegratedHarness.offlineAssetCalls.get('/offline.css'), 1, `shared page stylesheet fetched once through the actual background coordinator; calls=${JSON.stringify([...offlineIntegratedHarness.offlineAssetCalls])}; job=${JSON.stringify(offlineIntegratedResponse.job)}`);
 assert.equal(offlineIntegratedHarness.offlineAssetCalls.get('/shared.png'), 1, 'shared page image fetched once through the actual background coordinator');
@@ -956,7 +964,7 @@ assert(offlineIntegratedHarness.indexedDbRecordCount > 0, 'partial exports retai
 const slowOfflineFixture = { ...offlineFixture, assets: new Map([...offlineFixture.assets].map(([path, asset]) => [path, { ...asset, delay: 70 }])) };
 const offlineLifecycleHarness = await makeHarness({ delay: 3, realZip: true, offlineFixture: slowOfflineFixture });
 await offlineLifecycleHarness.clickAction({ id: 1, url: sourceUrl });
-const pausedExportPromise = offlineLifecycleHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
+const pausedExportPromise = offlineLifecycleHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'all', authorizationConfirmed: true });
 await offlineLifecycleHarness.waitOfflineFor((job) => job.state === 'downloading-assets');
 await offlineLifecycleHarness.send({ action: 'OFFLINE_CONTROL', control: 'PAUSE' });
 const offlinePaused = await offlineLifecycleHarness.waitOfflineFor((job) => job.state === 'paused');
@@ -971,7 +979,7 @@ assert.equal(offlineLifecycleResult.ok, true, 'the paused export completes after
 assert.equal(offlineLifecycleResult.job.state, 'completed');
 const authorizationRequired = await offlineLifecycleHarness.send({ action: 'OFFLINE_CONTROL', control: 'RETRY', authorizationConfirmed: false });
 assert.equal(authorizationRequired.ok, false, 'retry cannot bypass the explicit authorization confirmation');
-const offlineRetryResponse = await offlineLifecycleHarness.send({ action: 'OFFLINE_CONTROL', control: 'RETRY', authorizationConfirmed: true });
+const offlineRetryResponse = await offlineLifecycleHarness.send({ action: 'OFFLINE_CONTROL', control: 'RETRY', authorizationConfirmed: true, waitForCompletion: true });
 assert.equal(offlineRetryResponse.ok, true, 'an incomplete archive can be retried after reconfirmation');
 assert.equal(offlineLifecycleHarness.offlineAssetCalls.get('/offline.css'), 1, 'retry reuses successfully staged CSS without downloading it again');
 assert.equal(offlineLifecycleHarness.offlineAssetCalls.get('/bundle.js'), 1, 'retry reuses successfully staged JavaScript without downloading it again');
@@ -980,12 +988,12 @@ assert.equal(offlineLifecycleHarness.offlineAssetCalls.get('/missing.png'), 2, '
 
 const successfulOfflineFixture = { ...offlineFixture, html: (id) => offlineFixture.html(id).replace('<img src="/missing.png">', '').replace('<img src="/secret.png?token=fixture-secret">', '').replace('<img src="https://external.test/private.png">', ''), assets: new Map([...offlineFixture.assets].filter(([path]) => path !== '/missing.png')) };
 const offlineCleanupHarness = await makeHarness({ delay: 3, realZip: true, offlineFixture: successfulOfflineFixture });
-const offlineCleanupResult = await offlineCleanupHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
+const offlineCleanupResult = await offlineCleanupHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'all', authorizationConfirmed: true });
 assert.equal(offlineCleanupResult.ok, true);
 assert.equal(offlineCleanupHarness.indexedDbRecordCount, 0, 'fully successful export cleans its owned IndexedDB staging records');
 
 const offlineCancelHarness = await makeHarness({ delay: 3, realZip: true, offlineFixture: slowOfflineFixture });
-const cancelledOfflinePromise = offlineCancelHarness.send({ action: 'EXPORT_OFFLINE', scope: 'all', authorizationConfirmed: true });
+const cancelledOfflinePromise = offlineCancelHarness.send({ action: 'EXPORT_OFFLINE', waitForCompletion: true, scope: 'all', authorizationConfirmed: true });
 await offlineCancelHarness.waitOfflineFor((job) => job.state === 'downloading-assets');
 await offlineCancelHarness.send({ action: 'OFFLINE_CONTROL', control: 'CANCEL' });
 const cancelledOfflineResult = await cancelledOfflinePromise;

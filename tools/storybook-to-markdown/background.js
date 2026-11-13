@@ -799,16 +799,22 @@ function captureOfflinePage(expectedId, type, selector, maxPageBytes) {
     const escape = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
     const title = String(root.querySelector('h1,h2')?.textContent || document.title).trim();
     const outsideStyles = [...(document.body?.querySelectorAll('style,link[rel~="stylesheet"]') || [])].filter((node) => !root.contains(node));
-    const head = [...document.head.children, ...outsideStyles].filter((node) => node.tagName === 'STYLE' || node.tagName === 'LINK' && /stylesheet/i.test(node.rel)).map((node) => {
-      if (node.tagName !== 'STYLE' || node.textContent?.trim()) return node.outerHTML;
+    const styleMarkup = (sheet, node) => {
       try {
-        const css = [...(node.sheet?.cssRules || [])].map((rule) => rule.cssText).join('\n');
-        if (!css) return node.outerHTML;
-        const style = node.cloneNode(false);
+        const css = [...(sheet?.cssRules || [])].map((rule) => rule.cssText).join('\n');
+        if (!css) return node?.outerHTML || '';
+        const style = node?.cloneNode(false) || document.createElement('style');
+        if (!node && sheet.media?.mediaText) style.media = sheet.media.mediaText;
         style.textContent = css.replace(/<\/style/gi, '<\\/style');
         return style.outerHTML;
-      } catch { return node.outerHTML; }
-    }).join('\n');
+      } catch { return node?.outerHTML || ''; }
+    };
+    const head = [
+      ...[...document.head.children, ...outsideStyles].filter((node) => node.tagName === 'STYLE' || node.tagName === 'LINK' && /stylesheet/i.test(node.rel))
+        .filter((node) => !node.disabled && !node.sheet?.disabled)
+        .map((node) => node.tagName === 'STYLE' ? styleMarkup(node.sheet, node) : node.outerHTML),
+      ...[...(document.adoptedStyleSheets || [])].filter((sheet) => !sheet.disabled).map((sheet) => styleMarkup(sheet)),
+    ].join('\n');
     const resources = performance.getEntriesByType('resource').filter((resource) => new URL(resource.name, location.href).origin === location.origin);
     const performanceResources = resources.filter(({ initiatorType, name }) => ['css', 'img', 'image', 'font'].includes(initiatorType) ||
       initiatorType === 'link' && /\.(?:css|woff2?|ttf|otf)(?:[?#]|$)/i.test(name)).map((resource) => ({ url: resource.name, initiatorType: resource.initiatorType }));
@@ -1101,7 +1107,7 @@ async function exportOffline(message) {
         return null;
       };
       const sourcePath = new URL(source.tabUrl);
-      pageCache = await prepareOfflinePageCache(sourcePath.origin + sourcePath.pathname).catch(disablePageCache);
+      pageCache = await prepareOfflinePageCache(`v2:${sourcePath.origin}${sourcePath.pathname}`).catch(disablePageCache);
       let entries;
       let discoveredCount;
       if (scope === 'current') {
@@ -1136,7 +1142,7 @@ async function exportOffline(message) {
           }
           const page = cached || await offlineCapturePage(ownedTab.id, entry, target);
           const pageBytes = new TextEncoder().encode(page.html).byteLength;
-          if (offlineJob.snapshotBytes + pageBytes > StorybookOffline.MAX_PAGES_TOTAL_BYTES) throw new Error('Rendered page snapshots exceed the 16 MiB total snapshot limit.');
+          if (offlineJob.snapshotBytes + pageBytes > StorybookOffline.MAX_PAGES_TOTAL_BYTES) throw new Error(`Rendered page snapshots exceed the ${StorybookOffline.MAX_PAGES_TOTAL_BYTES / 1024 / 1024} MiB total snapshot limit.`);
           offlineJob.snapshotBytes += pageBytes;
           pages.push({ ...page, entry: metadata });
           if (cached) offlineJob.pages.reused++;
@@ -1207,7 +1213,7 @@ async function exportOffline(message) {
       offlineJob.warnings.push(...[...new Set(result.pageResults.flatMap((page) => page.warnings))].slice(0, 30));
       offlineJob.warnings.push(...result.registry.values().filter((asset) => asset.status !== 'DOWNLOADED').slice(0, 30).map((asset) => `${asset.resourceType}: ${asset.originalUrl || asset.failureReason} (${asset.status})`));
       const uncompressedBytes = result.files.reduce((total, file) => total + (file.bytes?.byteLength || new TextEncoder().encode(file.content || '').byteLength), 0);
-      if (uncompressedBytes > 32 * 1024 * 1024) throw new Error('Offline ZIP exceeds its 32 MiB uncompressed in-memory export limit. Nothing was truncated.');
+      if (uncompressedBytes > 48 * 1024 * 1024) throw new Error('Offline ZIP exceeds its 48 MiB uncompressed in-memory export limit. Nothing was truncated.');
       offlineJob.state = 'compressing'; offlineJob.phase = 'Generating offline site ZIP'; offlineJob.percent = 90; await notifyOfflineJob();
       const filename = `storybook-offline-${scope}-${new Date().toISOString().slice(0,10)}.zip`;
       await downloadOfflineArchive(result.files, filename);
@@ -1231,7 +1237,9 @@ async function exportOffline(message) {
     }
   })();
   offlineStarting = false;
-  return offlineRunner;
+  if (message.waitForCompletion === true) return offlineRunner;
+  void offlineRunner.catch((error) => console.error('Offline export failed:', offlineSafeError(error)));
+  return { ok: true, job: clone(offlineJob) };
 }
 
 function validateFigmaCssArchive(files, filename) {
@@ -1558,7 +1566,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.control === 'PAUSE' && offlineRunner) { offlineJob.pauseRequested = true; offlineJob.state = 'pausing'; offlineJob.phaseCode = 'PAUSING'; offlineJob.phase = 'Stopping new pages and assets'; await notifyOfflineJob(); return { ok: true, job: clone(offlineJob) }; }
       if (message.control === 'RESUME' && offlineRunner) { offlineJob.pauseRequested = false; offlineJob.state = 'resuming'; offlineJob.phaseCode = 'RESUMING'; offlineJob.phase = 'Resuming the saved in-memory export'; await notifyOfflineJob(); return { ok: true, job: clone(offlineJob) }; }
       if (message.control === 'CANCEL' && offlineRunner) { offlineJob.cancelRequested = true; offlineJob.pauseRequested = false; offlineJob.state = 'cancelling'; offlineJob.phaseCode = 'CANCELLING'; offlineJob.phase = 'Cancelling the export and cleaning owned resources'; offlineAbortController?.abort(); if (offlineJob.downloadId) await chrome.downloads.cancel(offlineJob.downloadId).catch(() => {}); await notifyOfflineJob(); return { ok: true, job: clone(offlineJob) }; }
-      if (message.control === 'RETRY' && message.authorizationConfirmed === true && (['failed', 'cancelled'].includes(offlineJob.state) || offlineJob.state === 'completed' && (offlineJob.assets?.failed || offlineJob.pages?.failed || offlineJob.pages?.partial))) return exportOffline({ scope: offlineJob.scope, authorizationConfirmed: true });
+      if (message.control === 'RETRY' && message.authorizationConfirmed === true && (['failed', 'cancelled'].includes(offlineJob.state) || offlineJob.state === 'completed' && (offlineJob.assets?.failed || offlineJob.pages?.failed || offlineJob.pages?.partial))) return exportOffline({ scope: offlineJob.scope, authorizationConfirmed: true, waitForCompletion: message.waitForCompletion });
       return { ok: false, error: 'This Offline Static action is unavailable in the current state.' };
     }
     if (message?.action === 'EXPORT_CURRENT') {
