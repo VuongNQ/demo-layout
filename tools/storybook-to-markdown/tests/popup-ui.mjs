@@ -148,7 +148,7 @@ assert.match(elements.get('storybook-message').textContent, /Confirm that organi
 elements.get('offline-authorized').checked = true;
 await elements.get('start').dispatch('click');
 assert.deepEqual(offlineAction && [offlineAction.scope, offlineAction.authorizationConfirmed], ['current', true], `confirmed Current Docs starts the separate Offline Static action: ${elements.get('storybook-message').textContent}`);
-assert.match(elements.get('storybook-message').textContent, /Downloaded storybook-offline-current.zip/);
+assert.equal(elements.get('offline-state-pill').textContent, 'completed');
 offlineJobListeners.forEach((listener) => listener({ action: 'OFFLINE_JOB_UPDATED', job: { state: 'completed', scope: 'all', pages: { selected: 2, scanned: 2, partial: 1 }, assets: { failed: 1 } } }));
 assert.equal(elements.get('offline-retry').hidden, false, 'completed partial exports expose a retry control');
 assert.equal(elements.get('offline-download').hidden, true, 'a completed job without a retained archive hides Download ZIP');

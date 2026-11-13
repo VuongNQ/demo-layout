@@ -4,7 +4,7 @@
   const MAX_RESOURCE_BYTES = 4 * 1024 * 1024;
   const MAX_TOTAL_BYTES = 12 * 1024 * 1024;
   const MAX_PAGE_BYTES = 4 * 1024 * 1024;
-  const MAX_PAGES_TOTAL_BYTES = 16 * 1024 * 1024;
+  const MAX_PAGES_TOTAL_BYTES = 32 * 1024 * 1024;
   const REQUEST_TIMEOUT_MS = 15000;
   const RETRIES = 2;
   const CONCURRENCY = 3;
@@ -388,6 +388,23 @@
       { path: 'pages/', content: '' }, { path: 'assets/', content: '' },
       ...['css', 'js', 'images', 'fonts', 'svg', 'other'].map((directory) => ({ path: `assets/${directory}/`, content: '' })),
     ];
+    const sharedStyles = new Map();
+    const shareHeadStyles = (html) => html.replace(/<head\b[^>]*>[\s\S]*?<\/head>/i, (head) =>
+      head.replace(/<style\b([^>]*)>([\s\S]*?)<\/style\s*>/gi, (markup, attrs, css) => {
+        if (!css.trim()) return markup;
+        const relocate = (url) => url.replace(/^\.\.\/assets\//, '../../assets/');
+        const relocated = mapImageSetStrings(css, relocate)
+          .replace(/((?:url\(\s*|@import\s+)["'])(\.\.\/assets\/[^"']+)/gi, (_match, prefix, url) => prefix + relocate(url));
+        let path = sharedStyles.get(relocated);
+        if (!path) {
+          path = `assets/css/inline-${sharedStyles.size + 1}.css`;
+          sharedStyles.set(relocated, path);
+          files.push({ path, content: relocated });
+        }
+        const media = attrs.match(/\bmedia\s*=\s*(["'])(.*?)\1/i)?.[2];
+        return `<link rel="stylesheet" href="../${path}"${media ? ` media="${escapeHtml(decodeHtmlAttribute(media))}"` : ''}>`;
+      }),
+    );
     const usedPagePaths = new Map();
     const pathForPage = (id) => {
       const base = slugId(id);
@@ -428,7 +445,7 @@
       }
       const status = failedRefs.length || missingNavTargets.length ? 'PARTIAL' : 'STATIC_READY';
       const local = localizeReferences(page.html, page.url, registry, path, pageIds);
-      files.push({ path, content: local });
+      files.push({ path, content: shareHeadStyles(local) });
       const warnings = [...failedRefs.map((asset) => `Unresolved ${asset.discoverySources.join(', ') || asset.resourceType}: ${asset.originalUrl || asset.failureReason}`), ...missingNavTargets.map((id) => `Internal Storybook navigation target was not included: ${id}`)];
       return { ...metadata, path, frame: page.readiness || null, status, warningCount: warnings.length, failureCount: failedRefs.filter((asset) => asset.status === 'FAILED').length, warnings };
     });

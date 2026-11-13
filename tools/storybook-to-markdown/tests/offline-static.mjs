@@ -223,6 +223,19 @@ const caseCollision = await offline.buildOfflineSite([
 ], { approvedOrigin: integratedOrigin, sourceUrl: integratedOrigin });
 assert.equal(new Set(caseCollision.pageResults.map((page) => page.path.toLowerCase())).size, 2, 'Storybook IDs that differ only by case get collision-safe Windows paths');
 
+const sharedCssPages = ['one', 'two'].map((id) => ({
+  id, url: 'https://storybook.internal/iframe.html', html: '<html><head><style media="screen">.badge { color: red; background: url("./badge.png"); }</style></head><body><span class="badge">Badge</span></body></html>',
+}));
+const sharedCss = await offline.buildOfflineSite(sharedCssPages, {
+  approvedOrigin: 'https://storybook.internal',
+  fetchImpl: async () => new Response(Uint8Array.of(137, 80, 78, 71), { headers: { 'Content-Type': 'image/png' } }),
+});
+const sharedMember = sharedCss.files.filter(({ path }) => path.startsWith('assets/css/inline-'));
+assert.equal(sharedMember.length, 1);
+assert.match(sharedMember[0].content, /url\("\.\.\/\.\.\/assets\/images\//);
+assert(sharedCss.files.filter(({ path }) => path.startsWith('pages/') && path.endsWith('.html')).every(({ content }) => content.includes('href="../assets/css/inline-1.css" media="screen"')));
+assert.equal(sharedCss.localCheck.ok, true);
+
 const offscreenSource = await readFile(new URL('../offscreen.js', import.meta.url), 'utf8');
 const urls = new Map(); const listenersZip = [];
 const offscreenContext = vm.createContext({ chrome: { runtime: { onMessage: { addListener: (listener) => listenersZip.push(listener) } } }, TextEncoder, Uint8Array, Uint32Array, DataView, Blob, ArrayBuffer, URL: { createObjectURL: (blob) => { const key = `blob:offline-${urls.size}`; urls.set(key, blob); return key; }, revokeObjectURL: (url) => urls.delete(url) }, Set });
